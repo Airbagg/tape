@@ -1,54 +1,38 @@
-(function() {
-  // Адрес твоего сервера (ngrok или localhost)
-  const BASE = 'https://490d-109-122-201-121.ngrok-free.app';
+(async () => {
+  try {
+    const res = await fetch('/library');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
 
-  async function load() {
-    try {
-      const res = await fetch(BASE + '/library');
-      const library = await res.json();
-      // library = { "Артист": { "Альбом": [ {title,artist,album,url,cover}, ... ] } }
+    const tracks = [];
 
-      const allTracks = [];
-      for (const artist of Object.keys(library)) {
-        for (const album of Object.keys(library[artist])) {
-          for (const track of library[artist][album]) {
-            // url уже относительный (/tracks/...) — делаем абсолютным
-            allTracks.push({
-              ...track,
-              url:   track.url.startsWith('http') ? track.url : BASE + track.url,
-              cover: track.cover
-                ? (track.cover.startsWith('http') ? track.cover : BASE + track.cover)
-                : null,
-            });
-          }
+    for (const [artist, albums] of Object.entries(data)) {
+      if (!albums || typeof albums !== 'object') continue;
+
+      for (const [album, info] of Object.entries(albums)) {
+        if (!info || typeof info !== 'object') continue;
+
+        const albumTracks = Array.isArray(info) ? info : (info.tracks || []);
+        const cover = Array.isArray(info) ? null : (info.cover || null);
+
+        for (const t of albumTracks) {
+          tracks.push({...t, cover: t.cover || cover});
         }
       }
-
-      // Убираем дубли (совместные артисты дублируются в library)
-      const seen = new Set();
-      const unique = allTracks.filter(t => {
-        const key = t.url;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      window.TapePlugin.register({
-        id:      'local-library',
-        name:    'Моя библиотека',
-        version: '1.0.0',
-        desc:    `Загружено ${unique.length} треков`,
-        emoji:   '🎵',
-        color:   'rgba(212,168,64,0.15)',
-        enabled: true,
-        tracks:  unique,
-      });
-
-      console.log('[Library] загружено треков:', unique.length);
-    } catch(e) {
-      console.error('[Library] ошибка загрузки:', e);
     }
-  }
 
-  load();
+    if (tracks.length > 0) {
+      window.TapePlugin.register({
+        name: 'RKN',
+        desc: 'Музыка без цензуры · ' + tracks.length + ' треков',
+        emoji: '📻',
+        tracks,
+      });
+      console.log('[RKN] загружено треков:', tracks.length);
+    } else {
+      console.warn('[RKN] Треков не найдено');
+    }
+  } catch(e) {
+    console.warn('[RKN] Ошибка загрузки:', e.message);
+  }
 })();
