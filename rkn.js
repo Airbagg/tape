@@ -1,6 +1,6 @@
 (function() {
-  const BASE = 'https://490d-109-122-201-121.ngrok-free.app';
-  const TRACKS = BASE + '/tracks/%D0%91%D0%B0%D1%81%D1%82%D0%B0%20%26%20%D0%93%D1%83%D1%84/%D0%91%D0%B0%D1%81%D1%82%D0%B0%20%D1%85%20%D0%93%D1%83%D1%84';
+  const BASE   = 'https://490d-109-122-201-121.ngrok-free.app';
+  const TRACKS = BASE + '/tracks/%D0%91%D0%B0%D1%81%D1%82%D0%B0/%D0%91%D0%B0%D1%81%D1%82%D0%B0%20%D1%85%20%D0%93%D1%83%D1%84';
   const COVER  = TRACKS + '/cover.jpg';
 
   const tracks = [
@@ -23,7 +23,7 @@
   window.TapePlugin.register({
     id:      'rkn',
     name:    'Баста х Гуф',
-    version: '1.1.0',
+    version: '1.2.0',
     desc:    'Альбом без цензуры',
     emoji:   '🎤',
     color:   'rgba(212,168,64,0.15)',
