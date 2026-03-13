@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>tape</title>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;700;900&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root{--bg:#0c0a08;--bg2:#141210;--bg3:#1e1a16;--gold:#d4a840;--gold2:#e8c87a;--text:#f0ece4;--muted:rgba(240,236,228,0.38);--border:rgba(240,236,228,0.07);--green:#4cd97a;--red:#e05454;--nav-h:64px}
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;overflow:hidden;background:var(--bg)}
+    body{font-family:'Inter',sans-serif;color:var(--text);user-select:none}
+    body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");opacity:0.04}
+    #app{display:flex;flex-direction:column;height:100vh}
+    .screen{display:none;flex-direction:column;flex:1;overflow:hidden}
+    .screen.active{display:flex}
+    #screen-home{padding-bottom:var(--nav-h);position:relative}
+    .top-bar{display:flex;align-items:center;justify-content:space-between;padding:18px 24px 12px;flex-shrink:0}
+    .app-name{font-family:'Unbounded',sans-serif;font-size:20px;font-weight:900;letter-spacing:-0.5px}
+    .plugin-pill{display:flex;align-items:center;gap:8px;background:var(--bg3);border:0.5px solid var(--border);border-radius:50px;padding:8px 14px;cursor:pointer;transition:background .2s}
+    .plugin-pill:active{background:#2a2420}
+    .plugin-pill-label{font-size:11px;color:var(--muted);letter-spacing:0.5px}
+    .status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:background .3s}
+    .status-dot.online{background:var(--green);animation:pulse-g 2s infinite}
+    .status-dot.offline{background:var(--red)}
+    @keyframes pulse-g{0%{box-shadow:0 0 0 0 rgba(76,217,122,0.4)}70%{box-shadow:0 0 0 7px rgba(76,217,122,0)}100%{box-shadow:0 0 0 0 rgba(76,217,122,0)}}
+    .card-area{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;padding-bottom:8px;cursor:grab}
+    .cards-wrapper{display:flex;align-items:center;width:100%;height:100%;position:relative}
+    .album-card{position:absolute;border-radius:24px;overflow:hidden;transition:transform .38s cubic-bezier(.34,1.2,.64,1),opacity .38s ease,filter .38s ease;display:flex;align-items:center;justify-content:center;flex-direction:column}
+    .album-card.main{width:min(272px,70vw);height:min(272px,70vw);left:50%;transform:translateX(-50%);z-index:3;box-shadow:0 24px 60px rgba(0,0,0,0.7)}
+    .album-card.prev{width:min(210px,54vw);height:min(210px,54vw);left:calc(50% - min(255px,65vw));transform:translateX(0) scale(0.88);opacity:0.4;z-index:2;filter:blur(1.5px)}
+    .album-card.next{width:min(210px,54vw);height:min(210px,54vw);left:calc(50% + min(45px,11vw));transform:translateX(0) scale(0.88);opacity:0.4;z-index:2;filter:blur(1.5px)}
+    .card-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:68px}
+    .card-vinyl{position:absolute;inset:0;background:repeating-radial-gradient(circle at 50% 50%,transparent 0,transparent 18px,rgba(0,0,0,0.05) 19px,transparent 20px)}
+    .card-label{position:absolute;bottom:16px;left:0;right:0;text-align:center;font-family:'Unbounded',sans-serif;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase}
+    .swipe-dots{display:none}
+    .track-info-wrap{padding:10px 28px 0;flex-shrink:0;text-align:center}
+    .track-title{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:700;letter-spacing:-0.5px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .track-artist{font-size:13px;color:var(--muted);margin-top:5px}
+    .progress-wrap{padding:16px 44px 2px;flex-shrink:0}
+    .progress-bar{width:100%;height:3px;background:rgba(240,236,228,0.08);border-radius:2px;cursor:pointer;position:relative}
+    .progress-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:2px;width:0%;transition:width .9s linear;position:relative}
+    .progress-fill::after{content:'';position:absolute;right:-5px;top:50%;transform:translateY(-50%);width:11px;height:11px;border-radius:50%;background:var(--gold2);box-shadow:0 0 8px rgba(212,168,64,0.5)}
+    .time-row{display:flex;justify-content:space-between;margin-top:9px;font-size:11px;color:var(--muted)}
+    .controls{display:flex;align-items:center;justify-content:center;padding:12px 44px 14px;flex-shrink:0}
+    .ctrl{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity .15s;padding:8px 0}
+    .ctrl:active{opacity:0.5}
+    .ctrl svg{width:22px;height:22px;fill:var(--muted)}
+    .ctrl.active svg{fill:var(--gold)}
+    .ctrl-play-wrap{flex:none;margin:0 8px}
+    .ctrl-play{width:60px;height:60px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;box-shadow:0 0 28px rgba(212,168,64,0.35);cursor:pointer;transition:transform .15s}
+    .ctrl-play:active{transform:scale(0.92)}
+    .ctrl-play svg{width:26px;height:26px;fill:#0c0a08;margin-left:2px}
+    #screen-search,#screen-library{padding:0 0 var(--nav-h)}
+    .screen-hdr{padding:16px 24px 12px;flex-shrink:0;font-family:'Unbounded',sans-serif;font-size:18px;font-weight:700}
+    .search-wrap{padding:0 24px 12px;flex-shrink:0;position:relative}
+    .search-ico{position:absolute;left:38px;top:50%;transform:translateY(-50%);opacity:0.35;pointer-events:none}
+    .search-input{width:100%;background:var(--bg3);border:0.5px solid var(--border);border-radius:14px;padding:12px 14px 12px 42px;color:var(--text);font-family:'Inter',sans-serif;font-size:15px;outline:none}
+    .search-input:focus{border-color:rgba(212,168,64,0.4)}
+    .search-input::placeholder{color:var(--muted)}
+    .list-area{flex:1;overflow-y:auto}
+    .list-area::-webkit-scrollbar{display:none}
+    .track-item{display:flex;align-items:center;gap:14px;padding:10px 24px;cursor:pointer;transition:background .15s}
+    .track-item:active,.track-item:hover{background:rgba(240,236,228,0.03)}
+    .track-item.playing{background:rgba(212,168,64,0.06)}
+    .t-thumb{width:46px;height:46px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}
+    .t-info{flex:1;min-width:0}
+    .t-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .t-art{font-size:11px;color:var(--muted);margin-top:2px}
+    .t-dur{font-size:11px;color:var(--muted);flex-shrink:0}
+    .bars{display:flex;align-items:flex-end;gap:2px;height:14px;flex-shrink:0}
+    .b{width:3px;border-radius:1px;background:var(--gold);animation:eq .6s ease-in-out infinite alternate}
+    .b:nth-child(2){animation-delay:.2s;height:60%}
+    .b:nth-child(3){animation-delay:.4s;height:40%}
+    @keyframes eq{0%{height:30%}100%{height:100%}}
+    #screen-plugins{padding:0 0 var(--nav-h)}
+    .plugins-hdr{display:flex;align-items:center;gap:12px;padding:16px 24px 12px;flex-shrink:0}
+    .back-btn{width:36px;height:36px;border-radius:50%;background:var(--bg3);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+    .back-btn:active{opacity:0.7}
+    .back-btn svg{width:18px;height:18px;fill:var(--text)}
+    .plugins-scroll{flex:1;overflow-y:auto;padding:0 16px}
+    .plugins-scroll::-webkit-scrollbar{display:none}
+    .p-card{background:var(--bg3);border:0.5px solid var(--border);border-radius:18px;padding:16px;display:flex;align-items:center;gap:14px;margin-bottom:10px}
+    .p-ico{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+    .p-info{flex:1;min-width:0}
+    .p-name{font-size:14px;font-weight:500;margin-bottom:3px}
+    .p-desc{font-size:11px;color:var(--muted);line-height:1.4}
+    .p-url{font-size:10px;color:var(--muted);margin-top:5px;font-family:'Courier New',monospace;opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .toggle{width:44px;height:24px;border-radius:12px;background:var(--bg2);border:0.5px solid var(--border);position:relative;cursor:pointer;transition:background .25s;flex-shrink:0}
+    .toggle.on{background:var(--gold);border-color:var(--gold)}
+    .toggle::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .25s cubic-bezier(.34,1.56,.64,1);box-shadow:0 1px 3px rgba(0,0,0,0.3)}
+    .toggle.on::after{transform:translateX(20px)}
+    .add-p{border:1px dashed rgba(240,236,228,0.1);border-radius:18px;padding:16px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px;cursor:pointer;margin:4px 0;transition:background .2s}
+    .add-p:active{background:var(--bg3)}
+    .bottom-nav{position:fixed;bottom:0;left:0;right:0;height:var(--nav-h);background:rgba(12,10,8,0.94);backdrop-filter:blur(24px);border-top:0.5px solid var(--border);display:flex;z-index:100}
+    .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:8px 0;transition:opacity .15s}
+    .nav-item:active{opacity:0.6}
+    .nav-item svg{width:22px;height:22px;fill:rgba(240,236,228,0.3);transition:fill .2s}
+    .nav-item span{font-size:9px;letter-spacing:1px;color:rgba(240,236,228,0.3);transition:color .2s}
+    .nav-item.active svg{fill:var(--gold)}
+    .nav-item.active span{color:var(--gold)}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(12px);z-index:200;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .3s}
+    .modal-overlay.open{opacity:1;pointer-events:all}
+    .modal-sheet{background:var(--bg2);border-radius:28px 28px 0 0;padding:20px;width:100%;border-top:0.5px solid var(--border);transform:translateY(100%);transition:transform .35s cubic-bezier(.34,1.1,.64,1);display:flex;flex-direction:column;gap:14px}
+    .modal-overlay.open .modal-sheet{transform:translateY(0)}
+    .modal-handle{width:32px;height:3px;background:var(--border);border-radius:2px;margin:0 auto 4px}
+    .modal-ttl{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:700}
+    .url-inp{background:var(--bg3);border:0.5px solid var(--border);border-radius:14px;padding:13px 16px;color:var(--text);font-family:'Courier New',monospace;font-size:12px;width:100%;outline:none;transition:border-color .2s}
+    .url-inp:focus{border-color:rgba(212,168,64,0.5)}
+    .url-inp::placeholder{color:var(--muted)}
+    .inst-btn{background:var(--gold);color:#0c0a08;border:none;border-radius:14px;padding:15px;font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;cursor:pointer;width:100%;transition:opacity .2s}
+    .inst-btn:active{opacity:0.8}
+    .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 32px;gap:12px;flex:1}
+    .empty-ico{font-size:44px;opacity:0.25}
+    .empty-txt{font-size:13px;color:var(--muted);text-align:center;line-height:1.6}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+    .screen.active>*{animation:fadeUp .28s ease both}
+    .screen.active>*:nth-child(2){animation-delay:.05s}
+    .screen.active>*:nth-child(3){animation-delay:.1s}
+    .screen.active>*:nth-child(4){animation-delay:.14s}
+  </style>
+</head>
+<body>
+<div id="app">
+
+<!-- HOME -->
+<div class="screen active" id="screen-home">
+  <div class="top-bar">
+    <div class="app-name">tape</div>
+    <div class="plugin-pill" onclick="showScreen('plugins')">
+      <div class="status-dot online" id="status-dot"></div>
+      <span class="plugin-pill-label">плагины</span>
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="opacity:.3"><path d="M3.5 2L6.5 5L3.5 8" stroke="#f0ece4" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+
+  <div class="card-area" id="card-area">
+    <div class="cards-wrapper">
+      <div class="album-card prev" id="card-prev">
+        <div class="card-fallback" id="fb-prev" style="background:linear-gradient(135deg,#1c2a3a,#0e1620)">🎵</div>
+        <div class="card-vinyl"></div>
+      </div>
+      <div class="album-card main" id="card-main" onclick="togglePlay()">
+        <div class="card-fallback" id="fb-main" style="background:linear-gradient(135deg,#3d1f5c,#1a0a2e)">🎵</div>
+        <div class="card-vinyl"></div>
+        <div class="card-label" id="card-album-label"></div>
+      </div>
+      <div class="album-card next" id="card-next">
+        <div class="card-fallback" id="fb-next" style="background:linear-gradient(135deg,#2a1200,#5c2a00)">🎵</div>
+        <div class="card-vinyl"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="swipe-dots" id="swipe-dots"></div>
+
+  <div class="track-info-wrap">
+    <div class="track-title" id="t-title">—</div>
+    <div class="track-artist" id="t-artist">Демо режим · подключите плагин</div>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="progress-bar" id="prog-bar" onclick="seekTo(event)">
+      <div class="progress-fill" id="prog-fill"></div>
+    </div>
+    <div class="time-row"><span id="t-cur">0:00</span><span id="t-tot">0:00</span></div>
+  </div>
+
+  <div class="controls">
+    <div class="ctrl" id="btn-shuf" onclick="toggleShuffle()">
+      <svg viewBox="0 0 24 24"><path d="M16 3h5v5l-1.5-1.5-4.5 4.5-2-2 4.5-4.5L16 3zM4 5l7.5 7.5-1.5 1.5L3.5 7 4 5zm7.5 8.5L5 20l-1-2 6.5-6.5 1 1zm4.5-1.5 1.5 1.5L21 16v5h-5l1.5-1.5-4.5-4.5 2-2 4.5 4.5L16.5 16z"/></svg>
+    </div>
+    <div class="ctrl" onclick="prevTrack()">
+      <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+    </div>
+    <div class="ctrl-play-wrap">
+      <div class="ctrl-play" id="btn-play" onclick="togglePlay()">
+        <svg id="play-ico" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      </div>
+    </div>
+    <div class="ctrl" onclick="nextTrack()">
+      <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+    </div>
+    <div class="ctrl" id="btn-rep" onclick="toggleRepeat()">
+      <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+    </div>
+  </div>
+</div>
+
+<!-- SEARCH -->
+<div class="screen" id="screen-search">
+  <div class="screen-hdr">Поиск</div>
+  <div class="search-wrap">
+    <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <circle cx="11" cy="11" r="7" stroke="#f0ece4" stroke-width="1.5"/>
+      <path d="m16.5 16.5 4 4" stroke="#f0ece4" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input class="search-input" type="search" placeholder="Артист, трек…" id="search-inp" oninput="doSearch(this.value)"/>
+  </div>
+  <div class="list-area" id="search-res">
+    <div class="empty"><div class="empty-ico">🔍</div><div class="empty-txt">Начните вводить название</div></div>
+  </div>
+</div>
+
+<!-- LIBRARY -->
+<div class="screen" id="screen-library">
+  <div class="screen-hdr">Библиотека</div>
+  <div class="list-area" id="lib-list">
+    <div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Подключите плагин с музыкой</div></div>
+  </div>
+</div>
+
+<!-- PLUGINS -->
+<div class="screen" id="screen-plugins">
+  <div class="plugins-hdr">
+    <div class="back-btn" onclick="showScreen('home')">
+      <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </div>
+    <span style="font-family:'Unbounded',sans-serif;font-size:18px;font-weight:700">Плагины</span>
+  </div>
+  <div class="plugins-scroll" id="plugins-list"></div>
+  <div style="padding:0 16px 16px">
+    <div class="add-p" onclick="openModal()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(240,236,228,0.4)"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      Добавить плагин по URL
+    </div>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="bottom-nav">
+  <div class="nav-item active" id="nav-home" onclick="showScreen('home')">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg><span>ГЛАВНАЯ</span>
+  </div>
+  <div class="nav-item" id="nav-search" onclick="showScreen('search')">
+    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span>ПОИСК</span>
+  </div>
+  <div class="nav-item" id="nav-library" onclick="showScreen('library')">
+    <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg><span>БИБЛИОТЕКА</span>
+  </div>
+</div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal" onclick="closeModal()">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-ttl">Добавить плагин</div>
+    <input class="url-inp" id="plugin-url" placeholder="https://example.com/rkn.js"/>
+    <button class="inst-btn" onclick="installPlugin()">УСТАНОВИТЬ</button>
+  </div>
+</div>
+
+<script>
+// ── DEMO TRACKS (пока нет плагина) ──
+const DEMO = [
+  {title:'Грустная песня',  artist:'Моргенштерн',  emoji:'🌙', bg:'linear-gradient(135deg,#3d1f5c,#1a0a2e)', album:'DOPE BOY', url:null},
+  {title:'Малиновый Lambо', artist:'Тимати',        emoji:'🔴', bg:'linear-gradient(135deg,#5c1212,#2e0a0a)', album:'Black Star',url:null},
+  {title:'Тает лёд',        artist:'Элджей',        emoji:'❄️', bg:'linear-gradient(135deg,#0a2a3a,#051520)', album:'Sayonara', url:null},
+  {title:'Самба',           artist:'Баста',         emoji:'🎸', bg:'linear-gradient(135deg,#1a2a00,#0a1400)', album:'Баста 5',  url:null},
+  {title:'Экспонат',        artist:'Нейромонах Феофан',emoji:'🔔',bg:'linear-gradient(135deg,#2a1a00,#150d00)',album:'Притча',  url:null},
+  {title:'Пустые слова',    artist:'Скриптонит',    emoji:'💫', bg:'linear-gradient(135deg,#001a2a,#000d15)', album:'Дом с нормальными явлениями', url:null},
+  {title:'Из окна',         artist:'Oxxxymiron',    emoji:'🪟', bg:'linear-gradient(135deg,#1e0a2e,#0a0515)', album:'Горгород', url:null},
+];
+
+// ── PLUGIN SYSTEM ──
+const TapePlugin = {
+  _plugins:[], _tracks:[], _listeners:{},
+  register(p){
+    this._plugins.push(p);
+    if(p.tracks) this._tracks.push(...p.tracks);
+    if(p.onInit) p.onInit(this);
+    this._emit('tracks', this._tracks);
+    updateDot(); renderLib(); renderPlayer();
+  },
+  getTracks(){ return this._tracks.length ? this._tracks : DEMO; },
+  on(e,cb){ (this._listeners[e]=this._listeners[e]||[]).push(cb); },
+  _emit(e,d){ (this._listeners[e]||[]).forEach(cb=>cb(d)); },
+};
+window.TapePlugin = TapePlugin;
+
+let installedPlugins = [];
+try { installedPlugins = JSON.parse(localStorage.getItem('tape_plugins')||'[]'); } catch(e){}
+
+// ── PLAYER STATE ──
+const audio = new Audio();
+const S = { idx:0, playing:false, shuffle:false, repeat:'none', progress:0 };
+
+audio.addEventListener('timeupdate',()=>{
+  if(!audio.duration) return;
+  S.progress = audio.currentTime/audio.duration;
+  document.getElementById('prog-fill').style.width=(S.progress*100).toFixed(2)+'%';
+  document.getElementById('t-cur').textContent=fmt(audio.currentTime);
+  document.getElementById('t-tot').textContent=fmt(audio.duration);
+});
+audio.addEventListener('ended',()=>{ S.repeat==='one'?(audio.currentTime=0,audio.play()):nextTrack(); });
+audio.addEventListener('play',()=>{ S.playing=true; updatePlayBtn(); renderLib(); });
+audio.addEventListener('pause',()=>{ S.playing=false; updatePlayBtn(); renderLib(); });
+
+function tracks(){ return TapePlugin.getTracks(); }
+function track(i){ const t=tracks(); return t[((i%t.length)+t.length)%t.length]; }
+
+function playIdx(i){
+  S.idx=((i%tracks().length)+tracks().length)%tracks().length;
+  const t=track(S.idx);
+  if(t.url){ audio.src=t.url; audio.play().catch(()=>{}); }
+  else { audio.pause(); audio.src=''; S.playing=false; updatePlayBtn(); }
+  renderPlayer(); renderLib();
+}
+
+function togglePlay(){
+  if(!track(S.idx).url){ return; }
+  audio.paused ? audio.play().catch(()=>{}) : audio.pause();
+}
+
+function nextTrack(){
+  const t=tracks();
+  let n=S.shuffle ? Math.floor(Math.random()*t.length) : (S.idx+1)%t.length;
+  playIdx(n);
+}
+function prevTrack(){
+  if(audio.currentTime>3){audio.currentTime=0;return;}
+  playIdx((S.idx-1+tracks().length)%tracks().length);
+}
+function toggleShuffle(){ S.shuffle=!S.shuffle; document.getElementById('btn-shuf').classList.toggle('active',S.shuffle); }
+function toggleRepeat(){
+  const m=['none','all','one']; S.repeat=m[(m.indexOf(S.repeat)+1)%3];
+  document.getElementById('btn-rep').classList.toggle('active',S.repeat!=='none');
+}
+function seekTo(e){
+  const b=document.getElementById('prog-bar'),r=b.getBoundingClientRect();
+  const ratio=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+  if(audio.duration) audio.currentTime=ratio*audio.duration;
+}
+function fmt(s){ if(!s||isNaN(s))return'0:00'; return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'); }
+
+function updatePlayBtn(){
+  document.getElementById('play-ico').innerHTML=S.playing
+    ?'<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
+    :'<path d="M8 5v14l11-7z"/>';
+}
+
+const GR=['linear-gradient(135deg,#1e3a5f,#0a1a2e)','linear-gradient(135deg,#3d1f5c,#1a0a2e)','linear-gradient(135deg,#2a1200,#5c2a00)','linear-gradient(135deg,#003a2a,#001a12)','linear-gradient(135deg,#3a0a1e,#1a0010)','linear-gradient(135deg,#1a2a00,#0a1400)','linear-gradient(135deg,#2a2000,#1a1400)'];
+function gr(i){ return GR[((i%GR.length)+GR.length)%GR.length]; }
+
+function setCard(el,fb,t,i){
+  if(!t){fb.style.background=gr(i);fb.textContent='🎵';return;}
+  fb.style.background=t.bg||gr(i);
+  fb.textContent=t.emoji||'🎵';
+}
+
+function renderPlayer(){
+  const t=track(S.idx), all=tracks();
+  document.getElementById('t-title').textContent=t?t.title:'—';
+  document.getElementById('t-artist').textContent=t?(t.artist+(t.url?'':' · демо')):'—';
+  document.getElementById('card-album-label').textContent=t&&t.album?t.album:'';
+  setCard(null,document.getElementById('fb-main'),t,S.idx);
+  setCard(null,document.getElementById('fb-prev'),all.length?track(S.idx-1):null,S.idx-1);
+  setCard(null,document.getElementById('fb-next'),all.length?track(S.idx+1):null,S.idx+1);
+  // dots
+  const max=Math.min(all.length,7);
+  document.getElementById('swipe-dots').innerHTML=[...Array(max)].map((_,i)=>{
+    const ri=all.length<=7?i:Math.round(i*(all.length-1)/(max-1));
+    return`<div class="dot ${ri===S.idx?'active':''}"></div>`;
+  }).join('');
+  updatePlayBtn();
+}
+
+function renderLib(){
+  const all=tracks(), el=document.getElementById('lib-list');
+  if(!all.length){el.innerHTML='<div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Подключите плагин с музыкой</div></div>';return;}
+  el.innerHTML=all.map((t,i)=>`
+    <div class="track-item ${i===S.idx?'playing':''}" onclick="playIdx(${i})">
+      <div class="t-thumb" style="background:${t.bg||gr(i)}">${t.emoji||'🎵'}</div>
+      <div class="t-info"><div class="t-name">${t.title}</div><div class="t-art">${t.artist||'—'}</div></div>
+      ${i===S.idx&&S.playing?'<div class="bars"><div class="b" style="height:100%"></div><div class="b"></div><div class="b"></div></div>':`<div class="t-dur">${t.duration||''}</div>`}
+    </div>`).join('');
+}
+
+let searchTimer=null;
+function doSearch(q){
+  const el=document.getElementById('search-res');
+  if(!q.trim()){
+    el.innerHTML='<div class="empty"><div class="empty-ico">🔍</div><div class="empty-txt">Начните вводить название</div></div>';
+    return;
+  }
+  // если есть плагин — ищем по его трекам
+  if(TapePlugin._tracks.length){
+    const r=TapePlugin._tracks.filter(t=>(t.title+t.artist).toLowerCase().includes(q.toLowerCase()));
+    if(!r.length){el.innerHTML='<div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Ничего не найдено</div></div>';return;}
+    el.innerHTML=r.map(t=>{const i=TapePlugin._tracks.indexOf(t);return`
+      <div class="track-item" onclick="playIdx(${i});showScreen('home')">
+        <div class="t-thumb" style="background:${t.bg||gr(i)}">${t.cover?`<img src="${t.cover}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`:t.emoji||'🎵'}</div>
+        <div class="t-info"><div class="t-name">${t.title}</div><div class="t-art">${t.artist}</div></div>
+        <div class="t-dur">${t.duration||''}</div>
+      </div>`;}).join('');
+    return;
+  }
+  // без плагина — iTunes API
+  el.innerHTML='<div class="empty"><div class="empty-ico" style="font-size:28px;opacity:0.5;animation:spin 1s linear infinite">◌</div><div class="empty-txt">Ищем…</div></div>';
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(async()=>{
+    try{
+      const res=await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=20&country=ru`);
+      const data=await res.json();
+      if(!data.results.length){
+        el.innerHTML='<div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Ничего не найдено</div></div>';
+        return;
+      }
+      el.innerHTML=data.results.map(t=>{
+        const cover=t.artworkUrl100.replace('100x100','300x300');
+        const dur=t.trackTimeMillis?fmt(t.trackTimeMillis/1000):'';
+        return`<div class="track-item" onclick="showNoPlugin()">
+          <div class="t-thumb" style="background:#1a1612;border-radius:10px;overflow:hidden">
+            <img src="${cover}" style="width:100%;height:100%;object-fit:cover" loading="lazy"/>
+          </div>
+          <div class="t-info">
+            <div class="t-name">${t.trackName||t.collectionName}</div>
+            <div class="t-art">${t.artistName}</div>
+          </div>
+          <div class="t-dur" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <span>${dur}</span>
+            <span style="font-size:9px;color:rgba(240,236,228,0.2);letter-spacing:0.5px">NO PLUGIN</span>
+          </div>
+        </div>`;
+      }).join('');
+    }catch(e){
+      el.innerHTML='<div class="empty"><div class="empty-ico">📡</div><div class="empty-txt">Ошибка соединения</div></div>';
+    }
+  },500);
+}
+
+function showNoPlugin(){
+  const m=document.getElementById('modal');
+  document.querySelector('.modal-ttl').textContent='Нужен плагин';
+  document.querySelector('.url-inp').placeholder='https://example.com/rkn.js';
+  const hint=document.createElement('p');
+  hint.style.cssText='font-size:12px;color:rgba(240,236,228,0.4);line-height:1.6;margin-top:-4px';
+  hint.textContent='Чтобы слушать треки, подключите плагин с музыкой. Вставьте URL плагина ниже.';
+  const sheet=document.querySelector('.modal-sheet');
+  const old=sheet.querySelector('.modal-hint');
+  if(old)old.remove();
+  hint.className='modal-hint';
+  sheet.insertBefore(hint, sheet.querySelector('.url-inp'));
+  m.classList.add('open');
+}
+
+function updateDot(){
+  const on=TapePlugin._plugins.length>0;
+  const d=document.getElementById('status-dot');
+  d.className='status-dot '+(on?'online':'offline');
+}
+
+function renderPlugins(){
+  const el=document.getElementById('plugins-list');
+  if(!installedPlugins.length){
+    el.innerHTML='<div class="empty"><div class="empty-ico">🔌</div><div class="empty-txt">Нет плагинов.<br/>Добавьте по URL ниже.</div></div>';return;
+  }
+  el.innerHTML=installedPlugins.map((p,i)=>`
+    <div class="p-card">
+      <div class="p-ico" style="background:${p.color||'rgba(212,168,64,0.12)'}">${p.emoji||'🔌'}</div>
+      <div class="p-info">
+        <div class="p-name">${p.name||'Плагин'}</div>
+        <div class="p-desc">${p.desc||''}</div>
+        <div class="p-url">${p.url}</div>
+      </div>
+      <div class="toggle ${p.enabled?'on':''}" onclick="togglePlugin(${i})"></div>
+    </div>`).join('');
+}
+
+function togglePlugin(i){
+  installedPlugins[i].enabled=!installedPlugins[i].enabled;
+  try{localStorage.setItem('tape_plugins',JSON.stringify(installedPlugins));}catch(e){}
+  renderPlugins(); updateDot();
+}
+
+function showScreen(n){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+n).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(v=>v.classList.remove('active'));
+  const nav=document.getElementById('nav-'+n);
+  if(nav)nav.classList.add('active');
+}
+
+function openModal(){ document.getElementById('modal').classList.add('open'); setTimeout(()=>document.getElementById('plugin-url').focus(),400); }
+function closeModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function installPlugin(){
+  const url=document.getElementById('plugin-url').value.trim();
+  if(!url)return;
+  const btn=document.querySelector('.inst-btn');
+  btn.textContent='ЗАГРУЗКА…'; btn.style.opacity='.7';
+  try{
+    await new Promise((res,rej)=>{const s=document.createElement('script');s.src=url;s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+    installedPlugins.push({url,enabled:true,name:'RKN плагин',desc:'Треки без цензуры',emoji:'📻',color:'rgba(212,168,64,0.12)'});
+    try{localStorage.setItem('tape_plugins',JSON.stringify(installedPlugins));}catch(e){}
+    renderPlugins(); updateDot(); closeModal();
+    document.getElementById('plugin-url').value='';
+  }catch(e){
+    btn.textContent='ОШИБКА — ПРОВЕРЬТЕ URL'; btn.style.background='var(--red)';
+    setTimeout(()=>{btn.textContent='УСТАНОВИТЬ';btn.style.background='';btn.style.opacity='';},2500);
+    return;
+  }
+  btn.textContent='УСТАНОВИТЬ'; btn.style.opacity='';
+}
+
+// ── SWIPE ──
+let tx=0,ty=0;
+const ca=document.getElementById('card-area');
+ca.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY;},{passive:true});
+ca.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;
+  if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)){ dx<0?nextTrack():prevTrack(); }
+},{passive:true});
+
+// mouse swipe for desktop preview
+let mx=0,mdown=false;
+ca.addEventListener('mousedown',e=>{mdown=true;mx=e.clientX;});
+ca.addEventListener('mouseup',e=>{
+  if(!mdown)return; mdown=false;
+  const dx=e.clientX-mx;
+  if(Math.abs(dx)>50){ dx<0?nextTrack():prevTrack(); }
+});
+
+// keyboard
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.code==='Space'){e.preventDefault();togglePlay();}
+  if(e.code==='ArrowRight')nextTrack();
+  if(e.code==='ArrowLeft')prevTrack();
+});
+
+// ── INIT ──
+renderPlayer();
+renderLib();
+renderPlugins();
+updateDot();
+</script>
+</body>
+</html>
