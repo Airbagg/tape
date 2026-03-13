@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>tape / admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0c0a08;--bg2:#111009;--bg3:#1a1714;--bg4:#222018;
+  --gold:#d4a840;--text:#f0ece4;--muted:rgba(240,236,228,0.4);--border:rgba(240,236,228,0.07);
+  --green:#4cd97a;--red:#e05454;--blue:#5ab4e8;
+  --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);--nav-h:60px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;overflow:hidden}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:0.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")}
+
+.app{display:flex;flex-direction:column;height:100dvh;padding-top:var(--st)}
+
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;color:var(--gold)}
+.logo-sub{font-size:9px;color:var(--muted);letter-spacing:1px}
+.topbar-right{display:flex;gap:8px;align-items:center}
+
+/* BUTTONS */
+.btn{background:var(--gold);color:#0c0a08;border:none;border-radius:8px;padding:8px 14px;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;cursor:pointer;transition:opacity .15s;letter-spacing:0.5px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.btn:active{opacity:0.75}
+.btn.sm{padding:6px 10px;font-size:9px}
+.btn.xs{padding:4px 8px;font-size:8px;border-radius:6px}
+.btn.secondary{background:var(--bg3);color:var(--text);border:0.5px solid var(--border)}
+.btn.danger{background:rgba(224,84,84,0.12);color:var(--red);border:0.5px solid rgba(224,84,84,0.2)}
+.btn.success{background:rgba(76,217,122,0.12);color:var(--green);border:0.5px solid rgba(76,217,122,0.2)}
+.btn.blue{background:rgba(90,180,232,0.12);color:var(--blue);border:0.5px solid rgba(90,180,232,0.2)}
+.btn.icon{background:var(--bg3);border:0.5px solid var(--border);padding:8px}
+.btn.icon svg{width:16px;height:16px;fill:var(--muted)}
+
+/* PAGES */
+.page{display:none;flex-direction:column;flex:1;overflow:hidden}
+.page.active{display:flex}
+.page-content{flex:1;overflow-y:auto;padding:14px 14px calc(var(--nav-h) + var(--sb) + 14px)}
+.page-content::-webkit-scrollbar{display:none}
+
+/* BOTTOM NAV */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + var(--sb));padding-bottom:var(--sb);background:rgba(12,10,8,0.96);backdrop-filter:blur(20px);border-top:0.5px solid var(--border);display:flex;z-index:50}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
+.nav-item:active{opacity:0.6}
+.nav-item svg{width:20px;height:20px;fill:rgba(240,236,228,0.3);transition:fill .2s}
+.nav-item span{font-size:8px;letter-spacing:1px;color:rgba(240,236,228,0.3);transition:color .2s}
+.nav-item.active svg{fill:var(--gold)}
+.nav-item.active span{color:var(--gold)}
+
+/* STATS */
+.stats-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.stat-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:14px;padding:14px}
+.stat-label{font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
+.stat-val{font-size:22px;font-weight:700;font-family:'Unbounded',sans-serif}
+
+/* ARTIST GRID */
+.artist-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(min-width:500px){.artist-grid{grid-template-columns:repeat(3,1fr)}}
+.artist-card{background:var(--bg3);border:0.5px solid var(--border);border-radius:14px;overflow:hidden;cursor:pointer}
+.artist-card:active{opacity:0.75}
+.artist-card-photo{width:100%;aspect-ratio:1;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:40px;position:relative;overflow:hidden}
+.artist-card-photo img{width:100%;height:100%;object-fit:cover}
+.artist-card-body{padding:10px}
+.artist-card-name{font-size:11px;font-weight:500;font-family:'Unbounded',sans-serif;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.artist-card-count{font-size:9px;color:var(--muted)}
+.no-photo-badge{position:absolute;bottom:6px;right:6px;background:rgba(224,84,84,0.85);color:#fff;font-size:8px;padding:2px 6px;border-radius:4px}
+
+/* ALBUMS EDITOR */
+.album-block{background:var(--bg3);border:0.5px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.album-hdr{display:flex;align-items:center;gap:8px;padding:12px 14px}
+.album-hdr-info{flex:1;min-width:0}
+.album-hdr-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.album-hdr-meta{font-size:9px;color:var(--muted);margin-top:2px}
+.album-hdr-actions{display:flex;gap:6px;align-items:center}
+.album-hdr-chevron{cursor:pointer;padding:4px;opacity:0.5}
+.album-hdr-chevron svg{width:14px;height:14px;fill:var(--text);transition:transform .2s}
+.album-hdr-chevron.open svg{transform:rotate(90deg)}
+.toggle{width:40px;height:22px;border-radius:11px;border:0.5px solid var(--border);background:var(--bg4);position:relative;cursor:pointer;flex-shrink:0;transition:background .2s}
+.toggle.on{background:rgba(76,217,122,0.25);border-color:rgba(76,217,122,0.4)}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform .2s,background .2s}
+.toggle.on::after{transform:translateX(18px);background:var(--green)}
+.album-tracks{padding:0 14px 12px;display:none}
+.album-block.open .album-tracks{display:block}
+.track-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)}
+.track-row:last-child{border-bottom:none}
+.track-row-name{flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.disabled-label{color:var(--red)}
+.type-badge{font-size:8px;padding:2px 6px;border-radius:4px;font-family:'Unbounded',sans-serif;font-weight:700;letter-spacing:0.5px;flex-shrink:0}
+.type-badge.single{background:rgba(212,168,64,0.12);color:var(--gold);border:0.5px solid rgba(212,168,64,0.25)}
+.type-badge.ep{background:rgba(90,180,232,0.12);color:var(--blue);border:0.5px solid rgba(90,180,232,0.25)}
+.type-badge.album{background:rgba(76,217,122,0.08);color:var(--green);border:0.5px solid rgba(76,217,122,0.2)}
+
+/* OVERLAY / SHEETS */
+.overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.65);backdrop-filter:blur(12px);display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .25s}
+.overlay.open{opacity:1;pointer-events:all}
+.sheet{background:var(--bg2);border-radius:24px 24px 0 0;border-top:0.5px solid var(--border);padding:20px 20px calc(20px + var(--sb));width:100%;max-height:92vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s cubic-bezier(.34,1.1,.64,1)}
+.overlay.open .sheet{transform:translateY(0)}
+.sheet-handle{width:32px;height:3px;background:var(--border);border-radius:2px;margin:0 auto 16px}
+.sheet-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:700;margin-bottom:16px}
+.sheet-subtitle{font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:16px}
+
+/* FORMS */
+.form-group{margin-bottom:14px}
+.form-label{font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;display:block}
+.form-input{width:100%;background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;transition:border-color .2s}
+.form-input:focus{border-color:rgba(212,168,64,0.4)}
+.form-input::placeholder{color:var(--muted)}
+textarea.form-input{resize:none;height:80px}
+.form-row{display:flex;gap:8px}
+.form-row .form-group{flex:1}
+select.form-input{appearance:none;cursor:pointer}
+
+/* SEGMENT CONTROL */
+.segment{display:flex;background:var(--bg3);border-radius:10px;padding:3px;gap:2px;margin-bottom:14px}
+.seg-btn{flex:1;padding:8px 4px;text-align:center;border-radius:8px;font-size:10px;font-family:'Unbounded',sans-serif;font-weight:700;cursor:pointer;color:var(--muted);transition:background .2s,color .2s;letter-spacing:0.5px}
+.seg-btn.active{background:var(--bg2);color:var(--text)}
+
+/* PHOTO */
+.photo-preview{width:100%;height:130px;border-radius:10px;background:var(--bg3);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;margin-bottom:14px;overflow:hidden;font-size:44px;position:relative}
+.photo-preview.sq{aspect-ratio:1;height:auto}
+.photo-preview img{width:100%;height:100%;object-fit:cover}
+.photo-src-tabs{display:flex;gap:4px;margin-bottom:10px;background:var(--bg3);border-radius:10px;padding:3px}
+.photo-tab{flex:1;padding:7px;text-align:center;border-radius:8px;font-size:10px;cursor:pointer;color:var(--muted);transition:background .2s,color .2s}
+.photo-tab.active{background:var(--bg2);color:var(--text)}
+
+/* FILE UPLOAD */
+.upload-zone{border:1.5px dashed var(--border);border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:14px}
+.upload-zone:hover,.upload-zone.drag{border-color:rgba(212,168,64,0.4)}
+.upload-zone input{display:none}
+.upload-zone-text{font-size:11px;color:var(--muted);margin-top:6px}
+.upload-zone-icon{font-size:28px}
+
+/* MUSIC UPLOAD */
+.music-upload-form{background:var(--bg3);border:0.5px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px}
+
+/* USERS */
+.user-card{background:var(--bg3);border:0.5px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
+.user-card:active{opacity:0.8}
+.user-card:hover{border-color:rgba(212,168,64,0.2)}
+.user-card.banned-card{border-color:rgba(224,84,84,0.25);background:rgba(224,84,84,0.04)}
+.user-card-top{display:flex;align-items:center;gap:10px}
+.user-avatar{width:38px;height:38px;border-radius:50%;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:15px;font-family:'Unbounded',sans-serif;font-weight:700;color:var(--gold);flex-shrink:0}
+.user-card-info{flex:1;min-width:0}
+.user-email{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-meta-row{display:flex;gap:8px;align-items:center;margin-top:3px;flex-wrap:wrap}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.badge{font-size:9px;padding:3px 8px;border-radius:20px;letter-spacing:0.5px;background:var(--bg4);color:var(--muted);border:0.5px solid var(--border)}
+.badge.admin{background:rgba(212,168,64,0.15);color:var(--gold);border-color:rgba(212,168,64,0.3)}
+.badge.sub{background:rgba(76,217,122,0.12);color:var(--green);border-color:rgba(76,217,122,0.3)}
+.badge.trial{background:rgba(212,168,64,0.08);color:#e8c87a;border-color:rgba(212,168,64,0.15)}
+.badge.expired{background:rgba(224,84,84,0.1);color:var(--red);border-color:rgba(224,84,84,0.2)}
+.badge.banned-badge{background:rgba(224,84,84,0.2);color:var(--red);border-color:rgba(224,84,84,0.4)}
+.user-stat{font-size:9px;color:var(--muted);display:flex;align-items:center;gap:3px}
+.user-stat strong{color:var(--text)}
+.user-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+/* USER DETAIL SHEET */
+.user-detail-header{display:flex;gap:14px;align-items:center;margin-bottom:16px}
+.user-detail-avatar{width:56px;height:56px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:22px;font-family:'Unbounded',sans-serif;font-weight:700;color:var(--gold);flex-shrink:0;border:1.5px solid var(--border)}
+.user-detail-info{flex:1;min-width:0}
+.user-detail-email{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px}
+.user-detail-id{font-size:9px;color:var(--muted)}
+.detail-section{margin-bottom:16px}
+.detail-section-title{font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.stats-mini{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.stat-mini-card{background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:10px;text-align:center}
+.stat-mini-val{font-size:18px;font-weight:700;font-family:'Unbounded',sans-serif;color:var(--gold)}
+.stat-mini-label{font-size:8px;color:var(--muted);margin-top:2px;letter-spacing:0.5px}
+.top-track-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border)}
+.top-track-item:last-child{border-bottom:none}
+.top-track-num{font-size:9px;color:var(--muted);width:16px;text-align:right}
+.top-track-name{flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top-track-cnt{font-size:9px;color:var(--muted)}
+.ban-history-item{background:rgba(224,84,84,0.06);border:0.5px solid rgba(224,84,84,0.15);border-radius:8px;padding:10px;margin-bottom:8px}
+.ban-history-type{font-size:9px;letter-spacing:0.5px;color:var(--red);font-family:'Unbounded',sans-serif;font-weight:700;margin-bottom:4px}
+.ban-history-reason{font-size:11px;margin-bottom:4px}
+.ban-history-date{font-size:9px;color:var(--muted)}
+.sub-controls{display:flex;gap:8px;align-items:center}
+.days-input{width:70px;text-align:center}
+.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+
+/* SECTION HDR */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-hdr h2{font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;color:var(--muted)}
+
+/* DIVIDER */
+.divider{height:0.5px;background:var(--border);margin:16px 0}
+
+/* TOAST */
+.toast{position:fixed;bottom:calc(var(--nav-h)+var(--sb)+12px);left:50%;transform:translateX(-50%) translateY(16px);background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:10px 18px;font-size:11px;transition:transform .3s,opacity .3s;z-index:200;white-space:nowrap;opacity:0;pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.toast.success{border-color:rgba(76,217,122,0.3);color:var(--green)}
+.toast.error{border-color:rgba(224,84,84,0.3);color:var(--red)}
+
+/* SEARCH */
+.search-bar{background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.search-bar svg{width:14px;height:14px;fill:var(--muted);flex-shrink:0}
+.search-bar input{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px}
+.search-bar input::placeholder{color:var(--muted)}
+
+/* EMPTY STATE */
+.empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:11px}
+
+/* STATS PAGE */
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.kpi-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:14px;padding:14px;position:relative;overflow:hidden}
+.kpi-card.gold{border-color:rgba(212,168,64,.25);background:rgba(212,168,64,.06)}
+.kpi-card.green{border-color:rgba(76,217,122,.2);background:rgba(76,217,122,.05)}
+.kpi-card.blue{border-color:rgba(91,141,238,.2);background:rgba(91,141,238,.05)}
+.kpi-card.red{border-color:rgba(224,84,84,.2);background:rgba(224,84,84,.05)}
+.kpi-label{font-size:8px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
+.kpi-val{font-size:26px;font-weight:900;font-family:'Unbounded',sans-serif;line-height:1}
+.kpi-val.gold{color:var(--gold)}
+.kpi-val.green{color:var(--green)}
+.kpi-val.blue{color:var(--blue)}
+.kpi-val.red{color:var(--red)}
+.kpi-sub{font-size:9px;color:var(--muted);margin-top:4px}
+.kpi-icon{position:absolute;right:12px;top:12px;font-size:22px;opacity:.35}
+
+.chart-block{background:var(--bg2);border:0.5px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px}
+.chart-title{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:14px;letter-spacing:.5px}
+.bar-chart{display:flex;align-items:flex-end;gap:6px;height:80px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.bar-fill{width:100%;border-radius:4px 4px 0 0;min-height:3px;transition:height .4s cubic-bezier(.34,1.1,.64,1)}
+.bar-fill.reg{background:rgba(91,141,238,.5)}
+.bar-fill.sub{background:rgba(76,217,122,.5)}
+.bar-label{font-size:8px;color:var(--muted);white-space:nowrap}
+
+.grant-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:0.5px solid var(--border)}
+.grant-row:last-child{border-bottom:none}
+.grant-email{flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grant-days{font-size:9px;color:var(--green);background:rgba(76,217,122,.1);border:0.5px solid rgba(76,217,122,.2);padding:2px 7px;border-radius:20px;white-space:nowrap}
+.grant-amount{font-size:10px;color:var(--gold);font-family:'Unbounded',sans-serif;font-weight:700;white-space:nowrap}
+.grant-date{font-size:9px;color:var(--muted);white-space:nowrap}
+
+.lib-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.lib-card{background:var(--bg3);border:0.5px solid var(--border);border-radius:12px;padding:12px;text-align:center}
+.lib-card-val{font-size:20px;font-weight:900;font-family:'Unbounded',sans-serif;color:var(--gold)}
+.lib-card-label{font-size:8px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px}
+
+.online-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;box-shadow:0 0 6px rgba(76,217,122,.6)}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div><div class="logo">tape</div><div class="logo-sub">ADMIN</div></div>
+    <div class="topbar-right">
+      <button class="btn secondary" onclick="location.href='/'">← ПРИЛОЖЕНИЕ</button>
+      <button class="btn icon" onclick="logout()">
+        <svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ARTISTS PAGE -->
+  <div class="page active" id="page-artists">
+    <div class="page-content">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-label">Артистов</div><div class="stat-val" id="stat-artists">—</div></div>
+        <div class="stat-card"><div class="stat-label">Треков</div><div class="stat-val" id="stat-tracks">—</div></div>
+      </div>
+      <div class="section-hdr">
+        <h2>АРТИСТЫ</h2>
+        <button class="btn sm" onclick="openArtistEdit(null)">+ ДОБАВИТЬ</button>
+      </div>
+      <div class="artist-grid" id="artist-grid"></div>
+    </div>
+  </div>
+
+  <!-- TRACKS PAGE -->
+  <div class="page" id="page-tracks">
+    <div class="page-content">
+      <div class="section-hdr">
+        <h2>ТРЕКИ / АЛЬБОМЫ</h2>
+        <button class="btn sm secondary" onclick="loadTracksAdmin()">↻</button>
+      </div>
+      <!-- Music upload -->
+      <div class="music-upload-form">
+        <div class="form-label">Загрузить музыку</div>
+        <div class="form-row">
+          <div class="form-group">
+            <input class="form-input" id="upload-artist" placeholder="Артист"/>
+          </div>
+          <div class="form-group">
+            <input class="form-input" id="upload-album" placeholder="Альбом"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Тип</label>
+            <select class="form-input" id="upload-type">
+              <option value="album">Альбом</option>
+              <option value="ep">EP</option>
+              <option value="single">Сингл</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Год</label>
+            <input class="form-input" id="upload-year" placeholder="2024" type="number" min="1900" max="2099"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Артисты (через запятую)</label>
+          <input class="form-input" id="upload-artists" placeholder="Баста, Гуф"/>
+        </div>
+        <div class="upload-zone" id="music-drop-zone" onclick="document.getElementById('music-files').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="handleMusicDrop(event)">
+          <input type="file" id="music-files" multiple accept=".mp3,.m4a,.flac,.wav" onchange="uploadMusic(this.files)"/>
+          <div class="upload-zone-icon">🎵</div>
+          <div class="upload-zone-text">Нажми или перетащи MP3 файлы</div>
+        </div>
+      </div>
+      <div class="search-bar" style="margin-top:4px">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="tracks-search" placeholder="Поиск по треку, альбому, артисту..." oninput="filterTracks(this.value)"/>
+      </div>
+      <div id="tracks-tree"></div>
+    </div>
+  </div>
+
+  <!-- USERS PAGE -->
+  <div class="page" id="page-users">
+    <div class="page-content">
+      <div class="section-hdr">
+        <h2>ПОЛЬЗОВАТЕЛИ</h2>
+        <button class="btn sm secondary" onclick="loadUsers()">↻</button>
+      </div>
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="users-search" placeholder="Поиск по email..." oninput="filterUsers()"/>
+      </div>
+      <div id="users-list"></div>
+    </div>
+  </div>
+
+  <!-- STATS PAGE -->
+  <div class="page" id="page-stats">
+    <div class="page-content">
+      <div class="section-hdr">
+        <h2>СТАТИСТИКА</h2>
+        <button class="btn sm secondary" onclick="loadStats()">↻</button>
+      </div>
+
+      <!-- KPI row 1: деньги + подписки -->
+      <div class="kpi-grid">
+        <div class="kpi-card gold">
+          <div class="kpi-icon">💰</div>
+          <div class="kpi-label">Выручка (est)</div>
+          <div class="kpi-val gold" id="kpi-revenue">—</div>
+          <div class="kpi-sub">из выданных подписок</div>
+        </div>
+        <div class="kpi-card green">
+          <div class="kpi-icon">✅</div>
+          <div class="kpi-label">Активных подписок</div>
+          <div class="kpi-val green" id="kpi-subs">—</div>
+          <div class="kpi-sub" id="kpi-subs-sub">загрузка...</div>
+        </div>
+      </div>
+
+      <!-- KPI row 2: онлайн + всего юзеров -->
+      <div class="kpi-grid">
+        <div class="kpi-card blue">
+          <div class="kpi-icon">👁</div>
+          <div class="kpi-label"><span class="online-dot"></span>Онлайн сейчас</div>
+          <div class="kpi-val blue" id="kpi-online">—</div>
+          <div class="kpi-sub">активны ≤ 5 мин назад</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon">👥</div>
+          <div class="kpi-label">Всего пользователей</div>
+          <div class="kpi-val" id="kpi-users">—</div>
+          <div class="kpi-sub" id="kpi-users-sub">загрузка...</div>
+        </div>
+      </div>
+
+      <!-- KPI row 3: триал + заблокированные -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-icon">⏳</div>
+          <div class="kpi-label">На триале</div>
+          <div class="kpi-val" id="kpi-trial">—</div>
+          <div class="kpi-sub">потенциальные платные</div>
+        </div>
+        <div class="kpi-card red">
+          <div class="kpi-icon">🚫</div>
+          <div class="kpi-label">Заблокированных</div>
+          <div class="kpi-val red" id="kpi-banned">—</div>
+          <div class="kpi-sub">активных банов</div>
+        </div>
+      </div>
+
+      <!-- Библиотека -->
+      <div class="lib-grid">
+        <div class="lib-card">
+          <div class="lib-card-val" id="kpi-artists">—</div>
+          <div class="lib-card-label">Артистов</div>
+        </div>
+        <div class="lib-card">
+          <div class="lib-card-val" id="kpi-albums">—</div>
+          <div class="lib-card-label">Альбомов</div>
+        </div>
+        <div class="lib-card">
+          <div class="lib-card-val" id="kpi-tracks">—</div>
+          <div class="lib-card-label">Треков</div>
+        </div>
+      </div>
+
+      <!-- График регистраций за 7 дней -->
+      <div class="chart-block">
+        <div class="chart-title">РЕГИСТРАЦИИ — 7 ДНЕЙ</div>
+        <div class="bar-chart" id="chart-regs"></div>
+      </div>
+
+      <!-- График выданных подписок -->
+      <div class="chart-block">
+        <div class="chart-title">ВЫДАННЫЕ ПОДПИСКИ — 7 ДНЕЙ</div>
+        <div class="bar-chart" id="chart-subs"></div>
+      </div>
+
+      <!-- Последние гранты -->
+      <div class="chart-block">
+        <div class="chart-title">ПОСЛЕДНИЕ ГРАНТЫ</div>
+        <div id="grants-list"><div class="empty">Загрузка...</div></div>
+      </div>
+
+      <div style="height:8px"></div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <div class="bottom-nav">
+    <div class="nav-item active" id="nav-artists" onclick="showPage('artists')">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      <span>АРТИСТЫ</span>
+    </div>
+    <div class="nav-item" id="nav-tracks" onclick="showPage('tracks')">
+      <svg viewBox="0 0 24 24"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 0 1-5 0 2.5 2.5 0 0 1 2.5-2.5c.57 0 1.08.19 1.5.51V5h4v2zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6z"/></svg>
+      <span>ТРЕКИ</span>
+    </div>
+    <div class="nav-item" id="nav-users" onclick="showPage('users')">
+      <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      <span>ЮЗЕРЫ</span>
+    </div>
+    <div class="nav-item" id="nav-stats" onclick="showPage('stats')">
+      <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+      <span>СТАТС</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ OVERLAYS ═══════════════════════ -->
+
+<!-- ARTIST EDIT -->
+<div class="overlay" id="artist-overlay" onclick="closeArtistEdit(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="artist-edit-title">Артист</div>
+
+    <!-- Circle preview + canvas editor -->
+    <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px">
+      <canvas id="artist-canvas" width="160" height="160"
+        style="border-radius:50%;width:100px;height:100px;background:var(--bg3);cursor:pointer;border:2px solid var(--border)"
+        onclick="document.getElementById('artist-photo-file').click()"></canvas>
+      <div id="artist-canvas-placeholder" style="margin-top:-100px;width:100px;height:100px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:36px;pointer-events:none">🎤</div>
+      <input type="file" id="artist-photo-file" accept="image/*" style="display:none" onchange="loadArtistPhoto(this)"/>
+      <div id="artist-photo-tools" style="display:none;flex-direction:row;gap:8px;margin-top:10px">
+        <button class="btn sm secondary" id="btn-bw" onclick="toggleBW()">ЧБ (умер)</button>
+        <button class="btn sm secondary" onclick="document.getElementById('artist-photo-file').click()">Изменить</button>
+        <button class="btn sm danger" onclick="clearArtistPhoto()">Удалить</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Имя артиста</label>
+      <input class="form-input" id="artist-name" placeholder="Оксимирон"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Биография</label>
+      <textarea class="form-input" id="artist-bio" placeholder="Несколько слов…"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn secondary" style="flex:1" onclick="closeArtistEdit()">ОТМЕНА</button>
+      <button class="btn danger" id="artist-delete-btn" style="flex:1" onclick="deleteArtist()">УДАЛИТЬ</button>
+      <button class="btn" style="flex:1" onclick="saveArtist()">СОХРАНИТЬ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ALBUM EDIT -->
+<div class="overlay" id="album-overlay" onclick="closeAlbumEdit(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="album-edit-title">Альбом</div>
+    <div class="sheet-subtitle" id="album-edit-sub"></div>
+
+    <!-- Cover -->
+    <div id="album-cover-existing" style="display:none;margin-bottom:12px">
+      <img id="album-cover-existing-img" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px"/>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn sm secondary" style="flex:1" onclick="document.getElementById('album-cover-file').click()">Изменить</button>
+        <button class="btn sm danger" style="flex:1" onclick="removeAlbumCover()">Удалить</button>
+      </div>
+    </div>
+    <div id="album-cover-upload" style="margin-bottom:12px">
+      <div class="upload-zone" onclick="document.getElementById('album-cover-file').click()">
+        <div class="upload-zone-icon">🖼</div>
+        <div class="upload-zone-text">Нажми чтобы выбрать обложку</div>
+      </div>
+    </div>
+    <input type="file" id="album-cover-file" accept="image/*" style="display:none" onchange="previewAlbumCoverFile(this)"/>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label class="form-label">Тип релиза</label>
+        <select class="form-input" id="album-type">
+          <option value="album">Альбом</option>
+          <option value="ep">EP</option>
+          <option value="single">Сингл</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label class="form-label">Год</label>
+        <input class="form-input" id="album-year" placeholder="2024" type="number" min="1900" max="2099"/>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Артисты (через запятую)</label>
+      <input class="form-input" id="album-artists" placeholder="Баста, Гуф"/>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn secondary" style="flex:1" onclick="closeAlbumEdit()">ОТМЕНА</button>
+      <button class="btn" style="flex:1" onclick="saveAlbumMeta()">СОХРАНИТЬ</button>
+    </div>
+  </div>
+</div>
+
+<!-- REASON OVERLAY -->
+<div class="overlay" id="reason-overlay" onclick="closeReason(event)">
+  <div class="sheet" style="max-height:50vh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Причина блокировки</div>
+    <div class="form-group">
+      <select class="form-input" id="reason-select" onchange="document.getElementById('reason-custom').style.display=this.value==='custom'?'block':'none'">
+        <option value="По требованию артиста">По требованию артиста</option>
+        <option value="По требованию Роскомнадзора">По требованию Роскомнадзора</option>
+        <option value="Временно недоступно">Временно недоступно</option>
+        <option value="custom">Своя причина...</option>
+      </select>
+    </div>
+    <div class="form-group" id="reason-custom" style="display:none">
+      <input class="form-input" id="reason-text" placeholder="Причина..."/>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn secondary" style="flex:1" onclick="closeReason()">ОТМЕНА</button>
+      <button class="btn danger" style="flex:1" onclick="confirmDisable()">ОТКЛЮЧИТЬ</button>
+    </div>
+  </div>
+</div>
+
+<!-- USER DETAIL -->
+<div class="overlay" id="user-overlay" onclick="closeUserDetail(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+
+    <!-- Email + badge -->
+    <div id="ud-email" style="font-family:'Unbounded',sans-serif;font-size:15px;font-weight:700;margin-bottom:8px;word-break:break-all"></div>
+    <div class="badges" id="ud-badges" style="margin-bottom:16px"></div>
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
+      <div class="user-stat">
+        <div class="user-stat-label">Прослушиваний</div>
+        <div class="user-stat-val" id="ud-plays">—</div>
+      </div>
+      <div class="user-stat">
+        <div class="user-stat-label">Дата регистрации</div>
+        <div class="user-stat-val" id="ud-created" style="font-size:13px"></div>
+      </div>
+    </div>
+
+    <!-- Подписка -->
+    <div class="form-label">Подписка</div>
+    <div id="ud-sub-text" style="font-size:11px;color:var(--muted);margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+      <button class="btn sm success" onclick="udGrant(7)">+7 дней</button>
+      <button class="btn sm success" onclick="udGrant(30)">+30 дней</button>
+      <button class="btn sm success" onclick="udGrant(90)">+90 дней</button>
+      <button class="btn sm danger" id="ud-revoke-btn" onclick="udRevoke()">Отозвать</button>
+    </div>
+
+    <!-- Роль -->
+    <div class="form-label">Роль</div>
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      <button class="btn sm secondary" id="ud-role-user" onclick="udSetRole('user')">Юзер</button>
+      <button class="btn sm secondary" id="ud-role-admin" onclick="udSetRole('admin')">Админ</button>
+    </div>
+
+    <!-- Бан -->
+    <div class="form-label">Бан</div>
+    <div id="ud-ban-status" style="font-size:11px;color:var(--red);margin-bottom:8px;display:none"></div>
+    <div class="form-group">
+      <input class="form-input" id="ud-ban-reason" placeholder="Причина бана..."/>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      <button class="btn sm danger" style="flex:1" onclick="udBan('email')">Забанить по email</button>
+      <button class="btn sm danger" style="flex:1" onclick="udBan('ip')">Забанить по IP</button>
+    </div>
+    <div id="ud-unban-wrap" style="display:none;margin-bottom:18px">
+      <button class="btn success" style="width:100%" onclick="udUnban()">Разбанить</button>
+    </div>
+
+    <button class="btn secondary" style="width:100%" onclick="closeUserDetail()">ЗАКРЫТЬ</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>

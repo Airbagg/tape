@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>tape</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --bg:#0c0a08;--bg2:#141210;--bg3:#1e1a16;
+    --gold:#d4a840;--gold2:#e8c87a;
+    --text:#f0ece4;--muted:rgba(240,236,228,0.38);--border:rgba(240,236,228,0.07);
+    --red:#e05454;--green:#4cd97a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow:hidden}
+
+  body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    opacity:0.04}
+
+  .wrap{
+    height:100%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:24px;
+  }
+
+  .logo{
+    font-family:'Unbounded',sans-serif;font-size:32px;font-weight:900;
+    color:var(--text);letter-spacing:-1px;margin-bottom:8px;
+  }
+  .tagline{font-size:12px;color:var(--muted);letter-spacing:1px;margin-bottom:40px;text-align:center}
+
+  .card{
+    background:var(--bg2);border:0.5px solid var(--border);
+    border-radius:24px;padding:28px;
+    width:100%;max-width:360px;
+  }
+
+  .tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--bg3);border-radius:12px;padding:4px}
+  .tab{
+    flex:1;padding:9px;text-align:center;border-radius:9px;
+    font-size:12px;font-weight:500;cursor:pointer;
+    color:var(--muted);transition:background .2s,color .2s;letter-spacing:0.3px;
+  }
+  .tab.active{background:var(--bg2);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,0.3)}
+
+  .form-group{margin-bottom:14px}
+  .form-input{
+    width:100%;background:var(--bg3);border:0.5px solid var(--border);
+    border-radius:12px;padding:13px 16px;
+    color:var(--text);font-family:'Inter',sans-serif;font-size:14px;
+    outline:none;transition:border-color .2s;
+  }
+  .form-input:focus{border-color:rgba(212,168,64,0.4)}
+  .form-input::placeholder{color:var(--muted)}
+
+  .btn{
+    width:100%;background:var(--gold);color:#0c0a08;
+    border:none;border-radius:12px;padding:15px;
+    font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;
+    cursor:pointer;transition:opacity .15s;letter-spacing:0.5px;margin-top:4px;
+  }
+  .btn:active{opacity:0.8}
+  .btn:disabled{opacity:0.5;cursor:not-allowed}
+
+  .error{
+    background:rgba(224,84,84,0.1);border:0.5px solid rgba(224,84,84,0.2);
+    border-radius:10px;padding:10px 14px;
+    font-size:12px;color:var(--red);margin-bottom:14px;
+    display:none;
+  }
+  .error.show{display:block}
+
+  .trial-badge{
+    text-align:center;font-size:11px;color:var(--muted);
+    margin-top:16px;line-height:1.6;
+  }
+  .trial-badge strong{color:var(--gold)}
+
+  /* paywall */
+  .paywall{display:none;flex-direction:column;align-items:center;text-align:center;gap:12px}
+  .paywall.show{display:flex}
+  .paywall-icon{font-size:52px;margin-bottom:4px}
+  .paywall-title{font-family:'Unbounded',sans-serif;font-size:18px;font-weight:700}
+  .paywall-sub{font-size:13px;color:var(--muted);line-height:1.6}
+  .price-tag{
+    background:rgba(212,168,64,0.1);border:0.5px solid rgba(212,168,64,0.3);
+    border-radius:14px;padding:16px 24px;margin:8px 0;
+  }
+  .price-tag .price{font-family:'Unbounded',sans-serif;font-size:28px;font-weight:900;color:var(--gold)}
+  .price-tag .period{font-size:11px;color:var(--muted);margin-top:2px}
+  .price-features{font-size:11px;color:var(--muted);line-height:2}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">tape</div>
+  <div class="tagline">музыка без цензуры</div>
+
+  <!-- Auth card -->
+  <div class="card" id="auth-card">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('login')" id="tab-login">Войти</div>
+      <div class="tab" onclick="switchTab('register')" id="tab-register">Регистрация</div>
+    </div>
+
+    <div class="error" id="error-msg"></div>
+
+    <div class="form-group">
+      <input class="form-input" type="email" id="inp-email" placeholder="Email" autocomplete="email"/>
+    </div>
+    <div class="form-group">
+      <input class="form-input" type="password" id="inp-pass" placeholder="Пароль" autocomplete="current-password"/>
+    </div>
+
+    <button class="btn" id="submit-btn" onclick="submit()">ВОЙТИ</button>
+
+    <div class="trial-badge" id="trial-badge" style="display:none">
+      <strong>2 дня бесплатно</strong><br/>
+      Потом 299 ₽/мес — отменить можно в любой момент
+    </div>
+  </div>
+
+  <!-- Paywall card -->
+  <div class="card" id="paywall-card" style="display:none">
+    <div class="paywall show">
+      <div class="paywall-icon">🔒</div>
+      <div class="paywall-title">Пробный период истёк</div>
+      <div class="paywall-sub">Оформи подписку чтобы слушать<br/>музыку без ограничений</div>
+      <div class="price-tag">
+        <div class="price">299 ₽</div>
+        <div class="period">в месяц</div>
+      </div>
+      <div class="price-features">
+        ✓ Вся библиотека<br/>
+        ✓ Без рекламы<br/>
+        ✓ Офлайн-доступ скоро
+      </div>
+      <button class="btn" onclick="goToPay()">ОФОРМИТЬ ПОДПИСКУ</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;cursor:pointer" onclick="logout()">Выйти из аккаунта</div>
+    </div>
+  </div>
+
+</div>
+<script>
+  let _tab = 'login';
+
+  function switchTab(tab) {
+    _tab = tab;
+    document.getElementById('tab-login').classList.toggle('active', tab==='login');
+    document.getElementById('tab-register').classList.toggle('active', tab==='register');
+    document.getElementById('submit-btn').textContent = tab==='login' ? 'ВОЙТИ' : 'СОЗДАТЬ АККАУНТ';
+    document.getElementById('trial-badge').style.display = tab==='register' ? 'block' : 'none';
+    document.getElementById('inp-pass').placeholder = tab==='login' ? 'Пароль' : 'Пароль (мин. 6 символов)';
+    showError('');
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg;
+    el.classList.toggle('show', !!msg);
+  }
+
+  async function submit() {
+    const email = document.getElementById('inp-email').value.trim();
+    const pass  = document.getElementById('inp-pass').value;
+    if (!email || !pass) return showError('Заполни все поля');
+
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    try {
+      const url = _tab === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({email, password: pass}),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showError(data.error || 'Ошибка');
+        btn.disabled = false;
+        btn.textContent = _tab==='login' ? 'ВОЙТИ' : 'СОЗДАТЬ АККАУНТ';
+        return;
+      }
+
+      localStorage.setItem('tape_token', data.token);
+      localStorage.setItem('tape_role',  data.role);
+
+      if (data.role === 'admin') {
+        window.location.href = '/admin.html';
+      } else if (data.access) {
+        window.location.href = '/index.html';
+      } else {
+        showPaywall();
+      }
+    } catch(e) {
+      showError('Ошибка соединения');
+      btn.disabled = false;
+      btn.textContent = _tab==='login' ? 'ВОЙТИ' : 'СОЗДАТЬ АККАУНТ';
+    }
+  }
+
+  function showPaywall() {
+    document.getElementById('auth-card').style.display = 'none';
+    document.getElementById('paywall-card').style.display = 'block';
+  }
+
+  function goToPay() {
+    alert('Оплата скоро будет доступна!');
+  }
+
+  function logout() {
+    localStorage.removeItem('tape_token');
+    localStorage.removeItem('tape_role');
+    location.reload();
+  }
+
+  // Enter key
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') submit();
+  });
+
+  // Проверяем есть ли уже токен
+  (async () => {
+    const token = localStorage.getItem('tape_token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/auth/me', {headers:{'Authorization':'Bearer '+token}});
+      if (!res.ok) return;
+      const user = await res.json();
+      if (user.role === 'admin') { window.location.href = '/admin.html'; return; }
+      if (user.access) { window.location.href = '/index.html'; return; }
+      showPaywall();
+    } catch(e) {}
+  })();
+</script>
+</body>
+</html>
