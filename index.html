@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="tape"/>
+  <meta name="theme-color" content="#0c0a08"/>
+  <link rel="manifest" href="manifest.json"/>
+  <title>tape</title>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;700;900&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:       #0c0a08;
+      --bg2:      #141210;
+      --bg3:      #1e1a16;
+      --gold:     #d4a840;
+      --gold2:    #e8c87a;
+      --text:     #f0ece4;
+      --muted:    rgba(240,236,228,0.38);
+      --border:   rgba(240,236,228,0.07);
+      --green:    #4cd97a;
+      --red:      #e05454;
+      --st:       env(safe-area-inset-top,0px);
+      --sb:       env(safe-area-inset-bottom,0px);
+      --nav-h:    64px;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;overflow:hidden;background:var(--bg)}
+    body{font-family:'Inter',sans-serif;color:var(--text);user-select:none;-webkit-user-select:none}
+
+    /* grain */
+    body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity:0.04}
+
+    #app{display:flex;flex-direction:column;height:100dvh;padding-top:var(--st)}
+
+    /* ── SCREENS ── */
+    .screen{display:none;flex-direction:column;flex:1;overflow:hidden}
+    .screen.active{display:flex}
+
+    /* ════════════════════════════
+       HOME / PLAYER SCREEN
+    ════════════════════════════ */
+    #screen-home{padding-bottom:calc(var(--nav-h) + var(--sb));position:relative}
+
+    /* TOP BAR */
+    .top-bar{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:16px 24px 12px;
+      flex-shrink:0;
+    }
+    .app-name{
+      font-family:'Unbounded',sans-serif;
+      font-size:20px;font-weight:900;
+      color:var(--text);letter-spacing:-0.5px;
+    }
+    .plugin-pill{
+      display:flex;align-items:center;gap:8px;
+      background:var(--bg3);
+      border:0.5px solid var(--border);
+      border-radius:50px;
+      padding:8px 14px;
+      cursor:pointer;transition:background .2s;
+    }
+    .plugin-pill:active{background:#2a2420}
+    .plugin-pill-label{font-size:11px;color:var(--muted);letter-spacing:0.5px}
+    .status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:background .3s}
+    .status-dot.online{background:var(--green);box-shadow:0 0 0 0 rgba(76,217,122,0.4);animation:pulse-g 2s infinite}
+    .status-dot.offline{background:var(--red)}
+    @keyframes pulse-g{
+      0%{box-shadow:0 0 0 0 rgba(76,217,122,0.4)}
+      70%{box-shadow:0 0 0 7px rgba(76,217,122,0)}
+      100%{box-shadow:0 0 0 0 rgba(76,217,122,0)}
+    }
+
+    /* CARD AREA */
+    .card-area{
+      flex:1;display:flex;align-items:center;justify-content:center;
+      position:relative;overflow:hidden;
+      padding:0 0 8px;
+    }
+
+    /* CARDS */
+    .cards-wrapper{
+      display:flex;align-items:center;
+      width:100%;height:100%;
+      position:relative;
+    }
+
+    .album-card{
+      position:absolute;
+      border-radius:24px;
+      overflow:hidden;
+      cursor:pointer;
+      transition:transform .35s cubic-bezier(.34,1.3,.64,1), opacity .35s ease, filter .35s ease;
+      display:flex;align-items:center;justify-content:center;
+      flex-direction:column;
+    }
+    .album-card.main{
+      width:min(280px,72vw);
+      height:min(280px,72vw);
+      left:50%;transform:translateX(-50%);
+      z-index:3;box-shadow:0 24px 60px rgba(0,0,0,0.7);
+    }
+    .album-card.prev{
+      width:min(220px,56vw);height:min(220px,56vw);
+      left:calc(50% - min(260px,67vw));
+      transform:translateX(0) scale(0.88);
+      opacity:0.45;z-index:2;filter:blur(1px);
+    }
+    .album-card.next{
+      width:min(220px,56vw);height:min(220px,56vw);
+      left:calc(50% + min(40px,10vw));
+      transform:translateX(0) scale(0.88);
+      opacity:0.45;z-index:2;filter:blur(1px);
+    }
+    .album-card.main.dragging{transition:none}
+
+    .card-cover{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+    .card-cover-fallback{
+      width:100%;height:100%;
+      display:flex;align-items:center;justify-content:center;
+      font-size:72px;
+      background:inherit;
+    }
+    .card-vinyl{
+      position:absolute;inset:0;
+      background:repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 18px, rgba(0,0,0,0.06) 19px, transparent 20px);
+    }
+
+    /* SWIPE DOTS */
+    .swipe-dots{
+      display:flex;align-items:center;justify-content:center;gap:6px;
+      padding:12px 0 6px;flex-shrink:0;
+    }
+    .dot{width:5px;height:5px;border-radius:50%;background:rgba(240,236,228,0.2);transition:all .3s}
+    .dot.active{width:18px;border-radius:3px;background:var(--gold)}
+
+    /* TRACK INFO */
+    .track-info-wrap{
+      padding:8px 28px 0;
+      flex-shrink:0;
+    }
+    .track-title{
+      font-family:'Unbounded',sans-serif;
+      font-size:20px;font-weight:700;
+      letter-spacing:-0.5px;line-height:1.2;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    .track-artist{
+      font-size:13px;color:var(--muted);
+      margin-top:5px;letter-spacing:0.2px;
+    }
+
+    /* PROGRESS */
+    .progress-wrap{padding:18px 28px 4px;flex-shrink:0}
+    .progress-bar{
+      width:100%;height:3px;background:rgba(240,236,228,0.1);
+      border-radius:2px;position:relative;cursor:pointer;
+    }
+    .progress-fill{
+      height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));
+      border-radius:2px;width:0%;transition:width .8s linear;
+      position:relative;
+    }
+    .progress-fill::after{
+      content:'';position:absolute;right:-5px;top:50%;transform:translateY(-50%);
+      width:11px;height:11px;border-radius:50%;
+      background:var(--gold2);box-shadow:0 0 8px rgba(212,168,64,0.6);
+    }
+    .time-row{
+      display:flex;justify-content:space-between;
+      margin-top:9px;font-size:11px;color:var(--muted);
+      font-variant-numeric:tabular-nums;
+    }
+
+    /* CONTROLS */
+    .controls{
+      display:flex;align-items:center;justify-content:center;
+      gap:0;padding:14px 28px 16px;flex-shrink:0;
+    }
+    .ctrl{
+      flex:1;display:flex;align-items:center;justify-content:center;
+      cursor:pointer;transition:opacity .15s;padding:8px 0;
+    }
+    .ctrl:active{opacity:0.5}
+    .ctrl svg{width:22px;height:22px;fill:var(--muted)}
+    .ctrl.active svg{fill:var(--gold)}
+    .ctrl-play-wrap{flex:none;margin:0 8px}
+    .ctrl-play{
+      width:60px;height:60px;border-radius:50%;
+      background:var(--gold);
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 0 28px rgba(212,168,64,0.35);
+      cursor:pointer;transition:transform .15s, box-shadow .15s;
+    }
+    .ctrl-play:active{transform:scale(0.92);box-shadow:0 0 14px rgba(212,168,64,0.2)}
+    .ctrl-play svg{width:26px;height:26px;fill:#0c0a08;margin-left:2px}
+    .ctrl-play.paused svg{margin-left:2px}
+    .ctrl-play.playing svg{margin-left:0}
+
+    /* ════════════════════════════
+       SEARCH SCREEN
+    ════════════════════════════ */
+    #screen-search{padding:0 0 calc(var(--nav-h) + var(--sb))}
+    .search-header{padding:16px 24px 12px;flex-shrink:0}
+    .search-title{font-family:'Unbounded',sans-serif;font-size:18px;font-weight:700;margin-bottom:14px}
+    .search-input-wrap{position:relative}
+    .search-icon{
+      position:absolute;left:14px;top:50%;transform:translateY(-50%);
+      width:16px;height:16px;opacity:0.4;
+    }
+    .search-input{
+      width:100%;background:var(--bg3);
+      border:0.5px solid var(--border);
+      border-radius:14px;padding:12px 14px 12px 40px;
+      color:var(--text);font-family:'Inter',sans-serif;font-size:15px;
+      outline:none;transition:border-color .2s;
+    }
+    .search-input:focus{border-color:rgba(212,168,64,0.4)}
+    .search-input::placeholder{color:var(--muted)}
+    .search-results{flex:1;overflow-y:auto;padding:8px 0}
+    .search-results::-webkit-scrollbar{display:none}
+
+    /* ════════════════════════════
+       LIBRARY SCREEN
+    ════════════════════════════ */
+    #screen-library{padding:0 0 calc(var(--nav-h) + var(--sb))}
+    .library-header{padding:16px 24px 8px;flex-shrink:0}
+    .library-title{font-family:'Unbounded',sans-serif;font-size:18px;font-weight:700}
+    .library-list{flex:1;overflow-y:auto;padding:8px 0}
+    .library-list::-webkit-scrollbar{display:none}
+
+    /* ════════════════════════════
+       PLUGINS SCREEN
+    ════════════════════════════ */
+    #screen-plugins{padding:0 0 calc(var(--nav-h) + var(--sb))}
+    .plugins-header{
+      display:flex;align-items:center;gap:12px;
+      padding:16px 24px 12px;flex-shrink:0;
+    }
+    .back-btn{
+      width:36px;height:36px;border-radius:50%;
+      background:var(--bg3);border:0.5px solid var(--border);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;transition:opacity .15s;flex-shrink:0;
+    }
+    .back-btn:active{opacity:0.6}
+    .back-btn svg{width:18px;height:18px;fill:var(--text)}
+    .plugins-title{font-family:'Unbounded',sans-serif;font-size:18px;font-weight:700}
+    .plugins-list{flex:1;overflow-y:auto;padding:8px 16px}
+    .plugins-list::-webkit-scrollbar{display:none}
+
+    .plugin-card{
+      background:var(--bg3);border:0.5px solid var(--border);
+      border-radius:18px;padding:16px;
+      display:flex;align-items:center;gap:14px;
+      margin-bottom:10px;
+    }
+    .plugin-icon-wrap{
+      width:46px;height:46px;border-radius:12px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:22px;flex-shrink:0;
+    }
+    .plugin-info{flex:1;min-width:0}
+    .plugin-name{font-size:14px;font-weight:500;margin-bottom:3px}
+    .plugin-desc{font-size:11px;color:var(--muted);line-height:1.4}
+    .plugin-ver{
+      font-size:10px;color:var(--muted);margin-top:5px;
+      font-family:'Courier New',monospace;opacity:0.6;
+    }
+    .toggle{
+      width:44px;height:24px;border-radius:12px;
+      background:var(--bg2);border:0.5px solid var(--border);
+      position:relative;cursor:pointer;transition:background .25s;flex-shrink:0;
+    }
+    .toggle.on{background:var(--gold);border-color:var(--gold)}
+    .toggle::after{
+      content:'';position:absolute;
+      top:3px;left:3px;width:18px;height:18px;
+      border-radius:50%;background:#fff;
+      transition:transform .25s cubic-bezier(.34,1.56,.64,1);
+      box-shadow:0 1px 3px rgba(0,0,0,0.3);
+    }
+    .toggle.on::after{transform:translateX(20px)}
+
+    .add-plugin{
+      border:1px dashed rgba(240,236,228,0.12);
+      border-radius:18px;padding:16px;
+      display:flex;align-items:center;justify-content:center;
+      gap:8px;color:var(--muted);font-size:13px;
+      cursor:pointer;margin:4px 0;transition:background .2s;
+    }
+    .add-plugin:active{background:var(--bg3)}
+
+    /* TRACK ITEM (shared) */
+    .track-item{
+      display:flex;align-items:center;gap:14px;
+      padding:10px 24px;cursor:pointer;
+      transition:background .15s;
+    }
+    .track-item:active{background:rgba(240,236,228,0.04)}
+    .track-item.playing{background:rgba(212,168,64,0.06)}
+    .track-thumb{
+      width:46px;height:46px;border-radius:10px;
+      flex-shrink:0;overflow:hidden;
+      display:flex;align-items:center;justify-content:center;
+      font-size:22px;
+    }
+    .track-thumb img{width:100%;height:100%;object-fit:cover}
+    .track-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .track-artist2{font-size:11px;color:var(--muted);margin-top:2px}
+    .track-dur{font-size:11px;color:var(--muted);flex-shrink:0;font-variant-numeric:tabular-nums}
+    .track-item-info{flex:1;min-width:0}
+
+    /* now playing bars */
+    .playing-bars{display:flex;align-items:flex-end;gap:2px;height:14px;flex-shrink:0}
+    .bar{width:3px;border-radius:1px;background:var(--gold);animation:eq .6s ease-in-out infinite alternate}
+    .bar:nth-child(2){animation-delay:.2s;height:60%}
+    .bar:nth-child(3){animation-delay:.4s;height:40%}
+    @keyframes eq{0%{height:30%}100%{height:100%}}
+
+    /* ── BOTTOM NAV ── */
+    .bottom-nav{
+      position:fixed;bottom:0;left:0;right:0;
+      height:calc(var(--nav-h) + var(--sb));
+      padding-bottom:var(--sb);
+      background:rgba(12,10,8,0.92);
+      backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+      border-top:0.5px solid var(--border);
+      display:flex;z-index:100;
+    }
+    .nav-item{
+      flex:1;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      gap:4px;cursor:pointer;padding:8px 0;
+      transition:opacity .15s;
+    }
+    .nav-item:active{opacity:0.6}
+    .nav-item svg{width:22px;height:22px;fill:rgba(240,236,228,0.3);transition:fill .2s}
+    .nav-item span{font-size:9px;letter-spacing:1px;color:rgba(240,236,228,0.3);transition:color .2s}
+    .nav-item.active svg{fill:var(--gold)}
+    .nav-item.active span{color:var(--gold)}
+
+    /* ── MODAL ── */
+    .modal-overlay{
+      position:fixed;inset:0;
+      background:rgba(0,0,0,0.65);
+      backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+      z-index:200;display:flex;align-items:flex-end;
+      opacity:0;pointer-events:none;
+      transition:opacity .3s;
+    }
+    .modal-overlay.open{opacity:1;pointer-events:all}
+    .modal-sheet{
+      background:var(--bg2);
+      border-radius:28px 28px 0 0;
+      padding:20px 20px calc(20px + var(--sb));
+      width:100%;border-top:0.5px solid var(--border);
+      transform:translateY(100%);
+      transition:transform .35s cubic-bezier(.34,1.1,.64,1);
+      display:flex;flex-direction:column;gap:14px;
+    }
+    .modal-overlay.open .modal-sheet{transform:translateY(0)}
+    .modal-handle{width:32px;height:3px;background:var(--border);border-radius:2px;margin:0 auto 4px}
+    .modal-ttl{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:700}
+    .url-input{
+      background:var(--bg3);border:0.5px solid var(--border);
+      border-radius:14px;padding:13px 16px;
+      color:var(--text);font-family:'Courier New',monospace;font-size:12px;
+      width:100%;outline:none;transition:border-color .2s;
+    }
+    .url-input:focus{border-color:rgba(212,168,64,0.5)}
+    .url-input::placeholder{color:var(--muted)}
+    .install-btn{
+      background:var(--gold);color:#0c0a08;
+      border:none;border-radius:14px;padding:15px;
+      font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;
+      cursor:pointer;width:100%;transition:opacity .2s;letter-spacing:0.5px;
+    }
+    .install-btn:active{opacity:0.8}
+
+    /* empty state */
+    .empty{
+      display:flex;flex-direction:column;align-items:center;
+      justify-content:center;padding:60px 32px;gap:12px;flex:1;
+    }
+    .empty-icon{font-size:48px;opacity:0.3}
+    .empty-text{font-size:13px;color:var(--muted);text-align:center;line-height:1.6}
+
+    /* ANIMATIONS */
+    @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+    .screen.active>*{animation:fadeUp .3s ease both}
+    .screen.active>*:nth-child(2){animation-delay:.04s}
+    .screen.active>*:nth-child(3){animation-delay:.08s}
+    .screen.active>*:nth-child(4){animation-delay:.12s}
+    .screen.active>*:nth-child(5){animation-delay:.16s}
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ══ HOME ══ -->
+  <div class="screen active" id="screen-home">
+
+    <div class="top-bar">
+      <div class="app-name">tape</div>
+      <div class="plugin-pill" onclick="showScreen('plugins')">
+        <div class="status-dot" id="status-dot"></div>
+        <span class="plugin-pill-label">плагины</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="opacity:0.3">
+          <path d="M3.5 2L6.5 5L3.5 8" stroke="#f0ece4" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card-area" id="card-area">
+      <div class="cards-wrapper" id="cards-wrapper">
+        <div class="album-card prev" id="card-prev">
+          <div class="card-cover-fallback" id="cover-prev-fallback" style="background:linear-gradient(135deg,#1c2a3a,#0e1620)">🎵</div>
+          <div class="card-vinyl"></div>
+        </div>
+        <div class="album-card main" id="card-main">
+          <img class="card-cover" id="cover-main" src="" alt="" onerror="this.style.display='none';document.getElementById('cover-main-fallback').style.display='flex'"/>
+          <div class="card-cover-fallback" id="cover-main-fallback" style="background:linear-gradient(135deg,#2d1b69,#11998e)">🎵</div>
+          <div class="card-vinyl"></div>
+        </div>
+        <div class="album-card next" id="card-next">
+          <div class="card-cover-fallback" id="cover-next-fallback" style="background:linear-gradient(135deg,#3d2010,#1a0e05)">🎵</div>
+          <div class="card-vinyl"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="swipe-dots" id="swipe-dots"></div>
+
+    <div class="track-info-wrap">
+      <div class="track-title" id="track-title">Нет треков</div>
+      <div class="track-artist" id="track-artist">Подключите плагин с музыкой</div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar" id="progress-bar" onclick="seekTo(event)">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="time-row">
+        <span id="time-cur">0:00</span>
+        <span id="time-tot">0:00</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl" id="btn-shuffle" onclick="toggleShuffle()" title="Перемешать">
+        <svg viewBox="0 0 24 24"><path d="M16 3h5v5l-1.5-1.5-4.5 4.5-2-2 4.5-4.5L16 3zM4 5l7.5 7.5-1.5 1.5L3.5 7 4 5zm7.5 8.5L5 20l-1-2 6.5-6.5 1 1zm4.5-1.5 1.5 1.5L21 16v5h-5l1.5-1.5-4.5-4.5 2-2 4.5 4.5L16.5 16z"/></svg>
+      </div>
+      <div class="ctrl" onclick="prevTrack()" title="Назад">
+        <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+      </div>
+      <div class="ctrl-play-wrap">
+        <div class="ctrl-play" id="btn-play" onclick="togglePlay()">
+          <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+      </div>
+      <div class="ctrl" onclick="nextTrack()" title="Вперёд">
+        <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+      </div>
+      <div class="ctrl" id="btn-repeat" onclick="toggleRepeat()" title="Повтор">
+        <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ SEARCH ══ -->
+  <div class="screen" id="screen-search">
+    <div class="search-header">
+      <div class="search-title">Поиск</div>
+      <div class="search-input-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none">
+          <circle cx="11" cy="11" r="7" stroke="#f0ece4" stroke-width="1.5"/>
+          <path d="m16.5 16.5 4 4" stroke="#f0ece4" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input class="search-input" type="search" placeholder="Артист, трек, альбом…"
+          id="search-input" oninput="onSearch(this.value)"/>
+      </div>
+    </div>
+    <div class="search-results" id="search-results">
+      <div class="empty">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-text">Начните вводить название<br/>трека или артиста</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LIBRARY ══ -->
+  <div class="screen" id="screen-library">
+    <div class="library-header">
+      <div class="library-title">Библиотека</div>
+    </div>
+    <div class="library-list" id="library-list">
+      <div class="empty">
+        <div class="empty-icon">🎵</div>
+        <div class="empty-text">Подключите плагин с музыкой,<br/>чтобы видеть треки здесь</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PLUGINS ══ -->
+  <div class="screen" id="screen-plugins">
+    <div class="plugins-header">
+      <div class="back-btn" onclick="showScreen('home')">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </div>
+      <div class="plugins-title">Плагины</div>
+    </div>
+    <div class="plugins-list" id="plugins-list"></div>
+    <div style="padding:0 16px 12px">
+      <div class="add-plugin" onclick="openAddModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(240,236,228,0.4)"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        <span>Добавить плагин по URL</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BOTTOM NAV ══ -->
+  <div class="bottom-nav">
+    <div class="nav-item active" id="nav-home" onclick="showScreen('home')">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      <span>ГЛАВНАЯ</span>
+    </div>
+    <div class="nav-item" id="nav-search" onclick="showScreen('search')">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      <span>ПОИСК</span>
+    </div>
+    <div class="nav-item" id="nav-library" onclick="showScreen('library')">
+      <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+      <span>БИБЛИОТЕКА</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ ADD PLUGIN MODAL ══ -->
+<div class="modal-overlay" id="modal-add" onclick="closeAddModal()">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-ttl">Добавить плагин</div>
+    <input class="url-input" id="plugin-url-input"
+      placeholder="https://example.com/plugin.js"/>
+    <button class="install-btn" onclick="installPlugin()">УСТАНОВИТЬ</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════
+//  PLUGIN SYSTEM
+// ════════════════════════════════════════
+
+const TapePlugin = {
+  _plugins: [],
+  _tracks: [],
+  _listeners: {},
+
+  register(plugin) {
+    this._plugins.push(plugin);
+    if (plugin.tracks) {
+      this._tracks.push(...plugin.tracks);
+      this._emit('tracks', this._tracks);
+    }
+    if (plugin.onInit) plugin.onInit(this);
+    updateStatusDot();
+    renderLibrary();
+    if (this._tracks.length > 0 && player.currentIndex < 0) {
+      player.currentIndex = 0;
+      renderPlayer();
+    }
+  },
+
+  getTracks() { return this._tracks; },
+
+  on(event, cb) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(cb);
+  },
+
+  _emit(event, data) {
+    (this._listeners[event] || []).forEach(cb => cb(data));
+  },
+
+  isOnline() { return this._plugins.some(p => p.enabled !== false); }
+};
+
+window.TapePlugin = TapePlugin;
+
+// ════════════════════════════════════════
+//  STORED PLUGINS
+// ════════════════════════════════════════
+
+let installedPlugins = JSON.parse(localStorage.getItem('tape_plugins') || '[]');
+
+function savePlugins() {
+  localStorage.setItem('tape_plugins', JSON.stringify(installedPlugins));
+}
+
+function loadPlugin(url) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function initPlugins() {
+  for (const p of installedPlugins) {
+    if (p.enabled) {
+      try { await loadPlugin(p.url); } catch(e) { console.warn('Plugin load failed:', p.url); }
+    }
+  }
+  renderPluginsList();
+  updateStatusDot();
+}
+
+// ════════════════════════════════════════
+//  PLAYER STATE
+// ════════════════════════════════════════
+
+const audio = new Audio();
+audio.preload = 'auto';
+
+const player = {
+  currentIndex: -1,
+  isPlaying: false,
+  shuffle: false,
+  repeat: false,  // 'none' | 'one' | 'all'
+  repeatMode: 'none',
+  progress: 0,
+  duration: 0,
+};
+
+const CARD_GRADIENTS = [
+  'linear-gradient(135deg,#1e3a5f,#0a1a2e)',
+  'linear-gradient(135deg,#3d1f5c,#1a0a2e)',
+  'linear-gradient(135deg,#2a1200,#5c2a00)',
+  'linear-gradient(135deg,#003a2a,#001a12)',
+  'linear-gradient(135deg,#3a0a1e,#1a0010)',
+  'linear-gradient(135deg,#1a2a00,#0a1400)',
+  'linear-gradient(135deg,#2a2000,#1a1400)',
+];
+
+function getGradient(index) {
+  return CARD_GRADIENTS[index % CARD_GRADIENTS.length];
+}
+
+function getTracks() { return TapePlugin.getTracks(); }
+
+function getTrack(index) {
+  const tracks = getTracks();
+  if (!tracks.length) return null;
+  return tracks[((index % tracks.length) + tracks.length) % tracks.length];
+}
+
+// ════════════════════════════════════════
+//  AUDIO EVENTS
+// ════════════════════════════════════════
+
+audio.addEventListener('timeupdate', () => {
+  if (!audio.duration) return;
+  player.progress = audio.currentTime / audio.duration;
+  player.duration = audio.duration;
+  updateProgressUI();
+});
+
+audio.addEventListener('ended', () => {
+  if (player.repeatMode === 'one') {
+    audio.currentTime = 0;
+    audio.play();
+  } else {
+    nextTrack();
+  }
+});
+
+audio.addEventListener('play', () => {
+  player.isPlaying = true;
+  updatePlayBtn();
+});
+
+audio.addEventListener('pause', () => {
+  player.isPlaying = false;
+  updatePlayBtn();
+});
+
+audio.addEventListener('error', () => {
+  console.warn('Audio error for:', audio.src);
+});
+
+// ════════════════════════════════════════
+//  PLAYER CONTROLS
+// ════════════════════════════════════════
+
+function playIndex(index) {
+  const tracks = getTracks();
+  if (!tracks.length) return;
+  player.currentIndex = ((index % tracks.length) + tracks.length) % tracks.length;
+  const track = getTrack(player.currentIndex);
+  if (!track) return;
+
+  audio.src = track.url;
+  audio.play().catch(() => {});
+  renderPlayer();
+  renderLibrary();
+  updateDotsUI();
+}
+
+function togglePlay() {
+  if (player.currentIndex < 0) {
+    if (getTracks().length) playIndex(0);
+    return;
+  }
+  if (audio.paused) audio.play().catch(() => {});
+  else audio.pause();
+}
+
+function nextTrack() {
+  const tracks = getTracks();
+  if (!tracks.length) return;
+  let next;
+  if (player.shuffle) {
+    do { next = Math.floor(Math.random() * tracks.length); }
+    while (next === player.currentIndex && tracks.length > 1);
+  } else {
+    next = (player.currentIndex + 1) % tracks.length;
+  }
+  playIndex(next);
+}
+
+function prevTrack() {
+  if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+  const tracks = getTracks();
+  if (!tracks.length) return;
+  const prev = (player.currentIndex - 1 + tracks.length) % tracks.length;
+  playIndex(prev);
+}
+
+function toggleShuffle() {
+  player.shuffle = !player.shuffle;
+  document.getElementById('btn-shuffle').classList.toggle('active', player.shuffle);
+}
+
+function toggleRepeat() {
+  const modes = ['none','all','one'];
+  const i = modes.indexOf(player.repeatMode);
+  player.repeatMode = modes[(i+1) % modes.length];
+  const btn = document.getElementById('btn-repeat');
+  btn.classList.toggle('active', player.repeatMode !== 'none');
+  btn.querySelector('svg').style.opacity = player.repeatMode === 'one' ? '1' : '';
+  // show "1" badge if one
+  btn.title = player.repeatMode === 'one' ? 'Повтор трека' : player.repeatMode === 'all' ? 'Повтор всего' : 'Без повтора';
+}
+
+function seekTo(e) {
+  const bar = document.getElementById('progress-bar');
+  const rect = bar.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  if (audio.duration) audio.currentTime = ratio * audio.duration;
+}
+
+function fmtTime(s) {
+  if (!s || isNaN(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
+}
+
+// ════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════
+
+function renderPlayer() {
+  const track = getTrack(player.currentIndex);
+  const idx = player.currentIndex;
+  const tracks = getTracks();
+
+  document.getElementById('track-title').textContent = track ? track.title : 'Нет треков';
+  document.getElementById('track-artist').textContent = track ? (track.artist || '—') : 'Подключите плагин с музыкой';
+
+  // MAIN card
+  const mainImg = document.getElementById('cover-main');
+  const mainFb = document.getElementById('cover-main-fallback');
+  if (track && track.cover) {
+    mainImg.src = track.cover;
+    mainImg.style.display = 'block';
+    mainFb.style.display = 'none';
+  } else {
+    mainImg.style.display = 'none';
+    mainFb.style.display = 'flex';
+    mainFb.textContent = track ? (track.emoji || '🎵') : '🎵';
+    mainFb.style.background = getGradient(idx);
+  }
+
+  // PREV card
+  const prevTrackData = tracks.length ? getTrack(idx - 1) : null;
+  const prevFb = document.getElementById('cover-prev-fallback');
+  prevFb.style.background = getGradient(idx - 1);
+  prevFb.textContent = prevTrackData ? (prevTrackData.emoji || '🎵') : '🎵';
+
+  // NEXT card
+  const nextTrackData = tracks.length ? getTrack(idx + 1) : null;
+  const nextFb = document.getElementById('cover-next-fallback');
+  nextFb.style.background = getGradient(idx + 1);
+  nextFb.textContent = nextTrackData ? (nextTrackData.emoji || '🎵') : '🎵';
+
+  updateDotsUI();
+  updatePlayBtn();
+}
+
+function updatePlayBtn() {
+  const btn = document.getElementById('btn-play');
+  const icon = document.getElementById('play-icon');
+  if (player.isPlaying) {
+    icon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+    btn.classList.add('playing');
+  } else {
+    icon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    btn.classList.remove('playing');
+  }
+}
+
+function updateProgressUI() {
+  const pct = (player.progress * 100).toFixed(2) + '%';
+  document.getElementById('progress-fill').style.width = pct;
+  document.getElementById('time-cur').textContent = fmtTime(audio.currentTime);
+  document.getElementById('time-tot').textContent = fmtTime(audio.duration);
+}
+
+function updateDotsUI() {
+  const tracks = getTracks();
+  const wrap = document.getElementById('swipe-dots');
+  const max = Math.min(tracks.length, 7);
+  const idx = player.currentIndex;
+  let html = '';
+  for (let i = 0; i < max; i++) {
+    const realIdx = tracks.length <= 7 ? i : Math.round(i * (tracks.length - 1) / (max - 1));
+    html += `<div class="dot ${realIdx === idx ? 'active' : ''}"></div>`;
+  }
+  wrap.innerHTML = html;
+}
+
+function updateStatusDot() {
+  const dot = document.getElementById('status-dot');
+  const online = TapePlugin._plugins.length > 0;
+  dot.className = 'status-dot ' + (online ? 'online' : 'offline');
+}
+
+function renderLibrary() {
+  const tracks = getTracks();
+  const el = document.getElementById('library-list');
+  if (!tracks.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🎵</div><div class="empty-text">Подключите плагин с музыкой,<br/>чтобы видеть треки здесь</div></div>`;
+    return;
+  }
+  el.innerHTML = tracks.map((t,i) => `
+    <div class="track-item ${i===player.currentIndex?'playing':''}" onclick="playIndex(${i})">
+      <div class="track-thumb" style="background:${t.cover?'#000':getGradient(i)}">
+        ${t.cover ? `<img src="${t.cover}" onerror="this.parentNode.innerHTML='${t.emoji||'🎵'}'" />` : (t.emoji||'🎵')}
+      </div>
+      <div class="track-item-info">
+        <div class="track-name">${t.title}</div>
+        <div class="track-artist2">${t.artist||'—'}</div>
+      </div>
+      ${i===player.currentIndex && player.isPlaying ? `<div class="playing-bars"><div class="bar" style="height:100%"></div><div class="bar"></div><div class="bar"></div></div>` : `<div class="track-dur">${t.duration||''}</div>`}
+    </div>
+  `).join('');
+}
+
+// ════════════════════════════════════════
+//  SEARCH
+// ════════════════════════════════════════
+
+function onSearch(q) {
+  const tracks = getTracks();
+  const el = document.getElementById('search-results');
+  if (!q.trim()) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-text">Начните вводить название<br/>трека или артиста</div></div>`;
+    return;
+  }
+  const ql = q.toLowerCase();
+  const results = tracks.filter(t =>
+    (t.title||'').toLowerCase().includes(ql) ||
+    (t.artist||'').toLowerCase().includes(ql)
+  );
+  if (!results.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🎵</div><div class="empty-text">Ничего не найдено</div></div>`;
+    return;
+  }
+  el.innerHTML = results.map(t => {
+    const i = tracks.indexOf(t);
+    return `<div class="track-item" onclick="playIndex(${i});showScreen('home')">
+      <div class="track-thumb" style="background:${getGradient(i)}">${t.emoji||'🎵'}</div>
+      <div class="track-item-info">
+        <div class="track-name">${t.title}</div>
+        <div class="track-artist2">${t.artist||'—'}</div>
+      </div>
+      <div class="track-dur">${t.duration||''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════
+//  SCREENS
+// ════════════════════════════════════════
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-'+name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const nav = document.getElementById('nav-'+name);
+  if (nav) nav.classList.add('active');
+}
+
+// ════════════════════════════════════════
+//  SWIPE GESTURE
+// ════════════════════════════════════════
+
+let touchStartX = 0, touchStartY = 0;
+const cardArea = document.getElementById('card-area');
+
+cardArea.addEventListener('touchstart', e => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}, {passive:true});
+
+cardArea.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+    if (dx < 0) nextTrack();
+    else prevTrack();
+  }
+}, {passive:true});
+
+// click on card to toggle play
+document.getElementById('card-main').addEventListener('click', togglePlay);
+
+// ════════════════════════════════════════
+//  PLUGINS UI
+// ════════════════════════════════════════
+
+function renderPluginsList() {
+  const el = document.getElementById('plugins-list');
+  if (!installedPlugins.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔌</div><div class="empty-text">Нет установленных плагинов.<br/>Добавьте плагин по URL ниже.</div></div>`;
+    return;
+  }
+  el.innerHTML = installedPlugins.map((p,i) => `
+    <div class="plugin-card">
+      <div class="plugin-icon-wrap" style="background:${p.color||'rgba(212,168,64,0.12)'}">
+        ${p.emoji||'🔌'}
+      </div>
+      <div class="plugin-info">
+        <div class="plugin-name">${p.name||'Плагин'}</div>
+        <div class="plugin-desc">${p.desc||p.url}</div>
+        <div class="plugin-ver">${p.url}</div>
+      </div>
+      <div class="toggle ${p.enabled?'on':''}" onclick="togglePlugin(${i})"></div>
+    </div>
+  `).join('');
+}
+
+function togglePlugin(i) {
+  installedPlugins[i].enabled = !installedPlugins[i].enabled;
+  savePlugins();
+  renderPluginsList();
+  // reload page to re-init plugins properly
+  // for now just update status
+  updateStatusDot();
+}
+
+function openAddModal() {
+  document.getElementById('modal-add').classList.add('open');
+  setTimeout(() => document.getElementById('plugin-url-input').focus(), 400);
+}
+
+function closeAddModal() {
+  document.getElementById('modal-add').classList.remove('open');
+}
+
+async function installPlugin() {
+  const url = document.getElementById('plugin-url-input').value.trim();
+  if (!url) return;
+  const btn = document.querySelector('.install-btn');
+  btn.textContent = 'ЗАГРУЗКА…';
+  btn.style.opacity = '0.7';
+  try {
+    await loadPlugin(url);
+    installedPlugins.push({ url, enabled:true, name:'Плагин', desc:'Загружено с '+new URL(url).hostname, emoji:'🔌' });
+    savePlugins();
+    renderPluginsList();
+    updateStatusDot();
+    renderLibrary();
+    renderPlayer();
+    closeAddModal();
+    document.getElementById('plugin-url-input').value = '';
+  } catch(e) {
+    btn.textContent = 'ОШИБКА — ПРОВЕРЬТЕ URL';
+    btn.style.background = 'var(--red)';
+    setTimeout(() => { btn.textContent='УСТАНОВИТЬ'; btn.style.background=''; btn.style.opacity=''; }, 2500);
+    return;
+  }
+  btn.textContent = 'УСТАНОВИТЬ';
+  btn.style.opacity = '';
+}
+
+// ════════════════════════════════════════
+//  KEYBOARD
+// ════════════════════════════════════════
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'ArrowRight') nextTrack();
+  if (e.code === 'ArrowLeft') prevTrack();
+});
+
+// ════════════════════════════════════════
+//  MEDIA SESSION (lock screen controls)
+// ════════════════════════════════════════
+
+function updateMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  const track = getTrack(player.currentIndex);
+  if (!track) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: track.title,
+    artist: track.artist || '',
+    artwork: track.cover ? [{src: track.cover}] : [],
+  });
+  navigator.mediaSession.setActionHandler('play', () => audio.play());
+  navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+  navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
+  navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
+}
+
+TapePlugin.on('tracks', () => { renderPlayer(); renderLibrary(); });
+audio.addEventListener('play', updateMediaSession);
+
+// ════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════
+
+updateStatusDot();
+renderPlayer();
+renderLibrary();
+renderPluginsList();
+initPlugins();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
