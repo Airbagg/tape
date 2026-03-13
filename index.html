@@ -129,7 +129,7 @@
   <div class="top-bar">
     <div class="app-name">tape</div>
     <div class="plugin-pill" onclick="showScreen('plugins')">
-      <div class="status-dot offline" id="status-dot"></div>
+      <div class="status-dot online" id="status-dot"></div>
       <span class="plugin-pill-label">плагины</span>
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="opacity:.3"><path d="M3.5 2L6.5 5L3.5 8" stroke="#f0ece4" stroke-width="1.5" stroke-linecap="round"/></svg>
     </div>
@@ -253,16 +253,18 @@
 </div>
 
 <script>
+// ── DEMO TRACKS (пока нет плагина) ──
 const DEMO = [
   {title:'Грустная песня',  artist:'Моргенштерн',  emoji:'🌙', bg:'linear-gradient(135deg,#3d1f5c,#1a0a2e)', album:'DOPE BOY', url:null},
-  {title:'Малиновый Lambo', artist:'Тимати',        emoji:'🔴', bg:'linear-gradient(135deg,#5c1212,#2e0a0a)', album:'Black Star',url:null},
+  {title:'Малиновый Lambо', artist:'Тимати',        emoji:'🔴', bg:'linear-gradient(135deg,#5c1212,#2e0a0a)', album:'Black Star',url:null},
   {title:'Тает лёд',        artist:'Элджей',        emoji:'❄️', bg:'linear-gradient(135deg,#0a2a3a,#051520)', album:'Sayonara', url:null},
   {title:'Самба',           artist:'Баста',         emoji:'🎸', bg:'linear-gradient(135deg,#1a2a00,#0a1400)', album:'Баста 5',  url:null},
-  {title:'Экспонат',        artist:'Нейромонах Феофан',emoji:'🔔',bg:'linear-gradient(135deg,#2a1a00,#150d00)',album:'Притча', url:null},
+  {title:'Экспонат',        artist:'Нейромонах Феофан',emoji:'🔔',bg:'linear-gradient(135deg,#2a1a00,#150d00)',album:'Притча',  url:null},
   {title:'Пустые слова',    artist:'Скриптонит',    emoji:'💫', bg:'linear-gradient(135deg,#001a2a,#000d15)', album:'Дом с нормальными явлениями', url:null},
   {title:'Из окна',         artist:'Oxxxymiron',    emoji:'🪟', bg:'linear-gradient(135deg,#1e0a2e,#0a0515)', album:'Горгород', url:null},
 ];
 
+// ── PLUGIN SYSTEM ──
 const TapePlugin = {
   _plugins:[], _tracks:[], _listeners:{},
   register(p){
@@ -281,6 +283,7 @@ window.TapePlugin = TapePlugin;
 let installedPlugins = [];
 try { installedPlugins = JSON.parse(localStorage.getItem('tape_plugins')||'[]'); } catch(e){}
 
+// ── PLAYER STATE ──
 const audio = new Audio();
 const S = { idx:0, playing:false, shuffle:false, repeat:'none', progress:0 };
 
@@ -307,7 +310,7 @@ function playIdx(i){
 }
 
 function togglePlay(){
-  if(!track(S.idx).url) return;
+  if(!track(S.idx).url){ return; }
   audio.paused ? audio.play().catch(()=>{}) : audio.pause();
 }
 
@@ -341,16 +344,10 @@ function updatePlayBtn(){
 const GR=['linear-gradient(135deg,#1e3a5f,#0a1a2e)','linear-gradient(135deg,#3d1f5c,#1a0a2e)','linear-gradient(135deg,#2a1200,#5c2a00)','linear-gradient(135deg,#003a2a,#001a12)','linear-gradient(135deg,#3a0a1e,#1a0010)','linear-gradient(135deg,#1a2a00,#0a1400)','linear-gradient(135deg,#2a2000,#1a1400)'];
 function gr(i){ return GR[((i%GR.length)+GR.length)%GR.length]; }
 
-function setCard(fb,t,i){
+function setCard(el,fb,t,i){
   if(!t){fb.style.background=gr(i);fb.textContent='🎵';return;}
-  if(t.cover){
-    fb.style.background=gr(i);
-    fb.innerHTML=`<img src="${t.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${t.emoji||'🎵'}'"/>`;
-  } else {
-    fb.style.background=t.bg||gr(i);
-    fb.innerHTML='';
-    fb.textContent=t.emoji||'🎵';
-  }
+  fb.style.background=t.bg||gr(i);
+  fb.textContent=t.emoji||'🎵';
 }
 
 function renderPlayer(){
@@ -358,9 +355,15 @@ function renderPlayer(){
   document.getElementById('t-title').textContent=t?t.title:'—';
   document.getElementById('t-artist').textContent=t?(t.artist+(t.url?'':' · демо')):'—';
   document.getElementById('card-album-label').textContent=t&&t.album?t.album:'';
-  setCard(document.getElementById('fb-main'),t,S.idx);
-  setCard(document.getElementById('fb-prev'),all.length?track(S.idx-1):null,S.idx-1);
-  setCard(document.getElementById('fb-next'),all.length?track(S.idx+1):null,S.idx+1);
+  setCard(null,document.getElementById('fb-main'),t,S.idx);
+  setCard(null,document.getElementById('fb-prev'),all.length?track(S.idx-1):null,S.idx-1);
+  setCard(null,document.getElementById('fb-next'),all.length?track(S.idx+1):null,S.idx+1);
+  // dots
+  const max=Math.min(all.length,7);
+  document.getElementById('swipe-dots').innerHTML=[...Array(max)].map((_,i)=>{
+    const ri=all.length<=7?i:Math.round(i*(all.length-1)/(max-1));
+    return`<div class="dot ${ri===S.idx?'active':''}"></div>`;
+  }).join('');
   updatePlayBtn();
 }
 
@@ -369,7 +372,7 @@ function renderLib(){
   if(!all.length){el.innerHTML='<div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Подключите плагин с музыкой</div></div>';return;}
   el.innerHTML=all.map((t,i)=>`
     <div class="track-item ${i===S.idx?'playing':''}" onclick="playIdx(${i})">
-      <div class="t-thumb" style="background:${t.bg||gr(i)}">${t.cover?`<img src="${t.cover}" style="width:100%;height:100%;object-fit:cover;border-radius:10px" onerror="this.style.display='none'">`:t.emoji||'🎵'}</div>
+      <div class="t-thumb" style="background:${t.bg||gr(i)}">${t.emoji||'🎵'}</div>
       <div class="t-info"><div class="t-name">${t.title}</div><div class="t-art">${t.artist||'—'}</div></div>
       ${i===S.idx&&S.playing?'<div class="bars"><div class="b" style="height:100%"></div><div class="b"></div><div class="b"></div></div>':`<div class="t-dur">${t.duration||''}</div>`}
     </div>`).join('');
@@ -382,6 +385,7 @@ function doSearch(q){
     el.innerHTML='<div class="empty"><div class="empty-ico">🔍</div><div class="empty-txt">Начните вводить название</div></div>';
     return;
   }
+  // если есть плагин — ищем по его трекам
   if(TapePlugin._tracks.length){
     const r=TapePlugin._tracks.filter(t=>(t.title+t.artist).toLowerCase().includes(q.toLowerCase()));
     if(!r.length){el.innerHTML='<div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Ничего не найдено</div></div>';return;}
@@ -393,30 +397,27 @@ function doSearch(q){
       </div>`;}).join('');
     return;
   }
-  // без плагина — iTunes через CORS прокси
+  // без плагина — iTunes API
   el.innerHTML='<div class="empty"><div class="empty-ico" style="font-size:28px;opacity:0.5;animation:spin 1s linear infinite">◌</div><div class="empty-txt">Ищем…</div></div>';
   clearTimeout(searchTimer);
   searchTimer=setTimeout(async()=>{
     try{
-      const itunesUrl=`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=20&country=ru`;
-      const res=await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(itunesUrl)}`);
-      if(!res.ok) throw new Error('proxy error');
-      const raw=await res.json();
-      const data=JSON.parse(raw.contents);
-      if(!data.results||!data.results.length){
+      const res=await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=20&country=ru`);
+      const data=await res.json();
+      if(!data.results.length){
         el.innerHTML='<div class="empty"><div class="empty-ico">🎵</div><div class="empty-txt">Ничего не найдено</div></div>';
         return;
       }
       el.innerHTML=data.results.map(t=>{
-        const cover=(t.artworkUrl100||'').replace('100x100bb','600x600bb').replace('100x100','600x600');
+        const cover=t.artworkUrl100.replace('100x100','300x300');
         const dur=t.trackTimeMillis?fmt(t.trackTimeMillis/1000):'';
         return`<div class="track-item" onclick="showNoPlugin()">
           <div class="t-thumb" style="background:#1a1612;border-radius:10px;overflow:hidden">
-            ${cover?`<img src="${cover}" style="width:100%;height:100%;object-fit:cover" loading="lazy"/>`:'🎵'}
+            <img src="${cover}" style="width:100%;height:100%;object-fit:cover" loading="lazy"/>
           </div>
           <div class="t-info">
-            <div class="t-name">${t.trackName||t.collectionName||'—'}</div>
-            <div class="t-art">${t.artistName||'—'}</div>
+            <div class="t-name">${t.trackName||t.collectionName}</div>
+            <div class="t-art">${t.artistName}</div>
           </div>
           <div class="t-dur" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <span>${dur}</span>
@@ -425,27 +426,30 @@ function doSearch(q){
         </div>`;
       }).join('');
     }catch(e){
-      el.innerHTML='<div class="empty"><div class="empty-ico">📡</div><div class="empty-txt">Ошибка соединения.<br/>Попробуйте ещё раз.</div></div>';
+      el.innerHTML='<div class="empty"><div class="empty-ico">📡</div><div class="empty-txt">Ошибка соединения</div></div>';
     }
-  },600);
+  },500);
 }
 
 function showNoPlugin(){
-  const old=document.querySelector('.modal-hint');
-  if(!old){
-    const hint=document.createElement('p');
-    hint.style.cssText='font-size:12px;color:rgba(240,236,228,0.4);line-height:1.6;margin-top:-4px';
-    hint.textContent='Чтобы слушать треки, подключите плагин с музыкой.';
-    hint.className='modal-hint';
-    document.querySelector('.modal-sheet').insertBefore(hint, document.querySelector('.url-inp'));
-  }
+  const m=document.getElementById('modal');
   document.querySelector('.modal-ttl').textContent='Нужен плагин';
-  document.getElementById('modal').classList.add('open');
+  document.querySelector('.url-inp').placeholder='https://example.com/rkn.js';
+  const hint=document.createElement('p');
+  hint.style.cssText='font-size:12px;color:rgba(240,236,228,0.4);line-height:1.6;margin-top:-4px';
+  hint.textContent='Чтобы слушать треки, подключите плагин с музыкой. Вставьте URL плагина ниже.';
+  const sheet=document.querySelector('.modal-sheet');
+  const old=sheet.querySelector('.modal-hint');
+  if(old)old.remove();
+  hint.className='modal-hint';
+  sheet.insertBefore(hint, sheet.querySelector('.url-inp'));
+  m.classList.add('open');
 }
 
 function updateDot(){
   const on=TapePlugin._plugins.length>0;
-  document.getElementById('status-dot').className='status-dot '+(on?'online':'offline');
+  const d=document.getElementById('status-dot');
+  d.className='status-dot '+(on?'online':'offline');
 }
 
 function renderPlugins(){
@@ -501,7 +505,7 @@ async function installPlugin(){
   btn.textContent='УСТАНОВИТЬ'; btn.style.opacity='';
 }
 
-// swipe touch
+// ── SWIPE ──
 let tx=0,ty=0;
 const ca=document.getElementById('card-area');
 ca.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY;},{passive:true});
@@ -510,7 +514,7 @@ ca.addEventListener('touchend',e=>{
   if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)){ dx<0?nextTrack():prevTrack(); }
 },{passive:true});
 
-// mouse swipe
+// mouse swipe for desktop preview
 let mx=0,mdown=false;
 ca.addEventListener('mousedown',e=>{mdown=true;mx=e.clientX;});
 ca.addEventListener('mouseup',e=>{
@@ -519,6 +523,7 @@ ca.addEventListener('mouseup',e=>{
   if(Math.abs(dx)>50){ dx<0?nextTrack():prevTrack(); }
 });
 
+// keyboard
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   if(e.code==='Space'){e.preventDefault();togglePlay();}
@@ -526,6 +531,7 @@ document.addEventListener('keydown',e=>{
   if(e.code==='ArrowLeft')prevTrack();
 });
 
+// ── INIT ──
 renderPlayer();
 renderLib();
 renderPlugins();
