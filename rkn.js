@@ -1,35 +1,54 @@
 (function() {
-  const BASE   = 'https://490d-109-122-201-121.ngrok-free.app';
-  const TRACKS = BASE + '/tracks/%D0%91%D0%B0%D1%81%D1%82%D0%B0/%D0%91%D0%B0%D1%81%D1%82%D0%B0%20%D1%85%20%D0%93%D1%83%D1%84';
-  const COVER  = TRACKS + '/cover.jpg';
+  // Адрес твоего сервера (ngrok или localhost)
+  const BASE = 'https://490d-109-122-201-121.ngrok-free.app';
 
-  const tracks = [
-    { title: 'Вязки',                artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/vyazki.mp3',                cover: COVER },
-    { title: 'Другая волна',         artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/drugaya_volna.mp3',         cover: COVER },
-    { title: 'Если бы',              artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/esli_by_.mp3',              cover: COVER },
-    { title: 'Заколоченное',         artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/zakolochennoe.mp3',         cover: COVER },
-    { title: 'Зеркало',              artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/zerkalo.mp3',               cover: COVER },
-    { title: 'Как есть',             artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/kak_est.mp3',               cover: COVER },
-    { title: 'Китай',                artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/kitai_.mp3',                cover: COVER },
-    { title: 'Личное дело',          artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/lichnoe_delo.mp3',          cover: COVER },
-    { title: 'Не все потеряно пока', artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/ne_vse_poteryano_poka.mp3', cover: COVER },
-    { title: 'Самурай',              artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/samurai_.mp3',              cover: COVER },
-    { title: 'Соответственно',       artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/sootvetstvenno.mp3',        cover: COVER },
-    { title: 'Только сегодня',       artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/tolko_segodnya.mp3',        cover: COVER },
-    { title: 'Ходим по краю',        artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/hodim_po_krayu.mp3',        cover: COVER },
-    { title: 'ЧП',                   artist: 'Баста & Гуф', album: 'Баста х Гуф', url: TRACKS + '/chp.mp3',                   cover: COVER },
-  ];
+  async function load() {
+    try {
+      const res = await fetch(BASE + '/library');
+      const library = await res.json();
+      // library = { "Артист": { "Альбом": [ {title,artist,album,url,cover}, ... ] } }
 
-  window.TapePlugin.register({
-    id:      'rkn',
-    name:    'Баста х Гуф',
-    version: '1.2.0',
-    desc:    'Альбом без цензуры',
-    emoji:   '🎤',
-    color:   'rgba(212,168,64,0.15)',
-    enabled: true,
-    tracks:  tracks,
-  });
+      const allTracks = [];
+      for (const artist of Object.keys(library)) {
+        for (const album of Object.keys(library[artist])) {
+          for (const track of library[artist][album]) {
+            // url уже относительный (/tracks/...) — делаем абсолютным
+            allTracks.push({
+              ...track,
+              url:   track.url.startsWith('http') ? track.url : BASE + track.url,
+              cover: track.cover
+                ? (track.cover.startsWith('http') ? track.cover : BASE + track.cover)
+                : null,
+            });
+          }
+        }
+      }
 
-  console.log('[RKN] загружено треков:', tracks.length);
+      // Убираем дубли (совместные артисты дублируются в library)
+      const seen = new Set();
+      const unique = allTracks.filter(t => {
+        const key = t.url;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      window.TapePlugin.register({
+        id:      'local-library',
+        name:    'Моя библиотека',
+        version: '1.0.0',
+        desc:    `Загружено ${unique.length} треков`,
+        emoji:   '🎵',
+        color:   'rgba(212,168,64,0.15)',
+        enabled: true,
+        tracks:  unique,
+      });
+
+      console.log('[Library] загружено треков:', unique.length);
+    } catch(e) {
+      console.error('[Library] ошибка загрузки:', e);
+    }
+  }
+
+  load();
 })();
