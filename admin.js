@@ -511,7 +511,7 @@ function handleMusicDrop(e){
 async function openMetaPreview(fileList){
   if(!fileList || !fileList.length) return;
   _metaQueue = [];
-  _metaIdx = 0;
+  _metaIdx = -1;
   // Read basic metadata from each file using FileReader + ID3 simple parser
   for(const file of fileList){
     const meta = await readFileMeta(file);
@@ -656,17 +656,11 @@ async function readFileMeta(file){
           const vd = new Uint8Array(buf.slice(bstart, bend));
           const vdv = new DataView(buf.slice(bstart, bend));
           let vi=0;
-          const vlen=vdv.getUint32(0,true); vi+=4;
-          console.log('[FLAC] vendor len=', vlen, 'vendor=', new TextDecoder().decode(vd.slice(vi, vi+vlen)));
-          vi+=vlen; // skip vendor string
+          const vlen=vdv.getUint32(0,true); vi+=4+vlen; // skip vendor
           const count=vdv.getUint32(vi,true); vi+=4;
-          console.log('[FLAC] comment count=', count);
           for(let ci=0;ci<count;ci++){
-            if(vi+4 > vd.length){ console.warn('[FLAC] vi out of bounds at ci=',ci); break; }
             const clen=vdv.getUint32(vi,true); vi+=4;
-            if(vi+clen > vd.length){ console.warn('[FLAC] clen out of bounds',clen,'vi=',vi,'vd.length=',vd.length); break; }
             const comment=new TextDecoder().decode(vd.slice(vi,vi+clen)).trim(); vi+=clen;
-            console.log('[FLAC] comment['+ci+']=', comment);
             const eq=comment.indexOf('=');
             if(eq<0) continue;
             const k=comment.slice(0,eq).toUpperCase();
@@ -677,7 +671,6 @@ async function readFileMeta(file){
             if(k==='ALBUM'&&v) meta.album=v;
             if((k==='DATE'||k==='YEAR')&&v) meta.year=v.slice(0,4);
           }
-          console.log('[FLAC] meta after vorbis=', JSON.stringify({title:meta.title,artist:meta.artist,album:meta.album,year:meta.year}));
         }
         if(btype===6){ // PICTURE
           const pd=new DataView(buf.slice(bstart,bend));
@@ -782,8 +775,8 @@ function renderMetaQueue(){
 }
 
 function activateMetaItem(idx){
-  // Save current edits to previous active item before switching
-  if(_metaQueue[_metaIdx]) saveCurrentEdits();
+  // Save current edits to previous active item before switching (not when same index)
+  if(_metaQueue[_metaIdx] && idx !== _metaIdx) saveCurrentEdits();
   _metaIdx = idx;
   const item = _metaQueue[idx];
   if(!item) return;
