@@ -1,0 +1,17 @@
+{
+  "name": "tape",
+  "short_name": "tape",
+  "description": "Музыкальный плеер с плагинами",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0a08",
+  "theme_color": "#0c0a08",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

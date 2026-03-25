@@ -1,0 +1,5 @@
+tape.db
+__pycache__/
+*.pyc
+.env
+tracks/
