@@ -104,13 +104,37 @@ ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-TRACKS_DIR  = os.path.join(BASE_DIR, 'tracks')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'uploads')
 SUPPORTED   = ('.mp3', '.m4a', '.flac', '.wav', '.ogg')
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(os.path.join(UPLOADS_DIR, 'photos'), exist_ok=True)
-os.makedirs(os.path.join(UPLOADS_DIR, 'music'), exist_ok=True)
+
+# ── Supabase Storage ──────────────────────────────────────
+STORAGE_BUCKET = 'tracks'
+
+def sb_public_url(path):
+    base = (SUPABASE_URL or '').rstrip('/')
+    return f"{base}/storage/v1/object/public/{STORAGE_BUCKET}/{urllib.parse.quote(path, safe='/')}"
+
+def sb_list(prefix=''):
+    try:
+        res = supabase.storage.from_(STORAGE_BUCKET).list(prefix, {'limit': 1000, 'sortBy': {'column': 'name', 'order': 'asc'}})
+        return res or []
+    except Exception as e:
+        print('sb_list error:', e)
+        return []
+
+def sb_upload(path, data, content_type='audio/mpeg'):
+    try:
+        supabase.storage.from_(STORAGE_BUCKET).upload(
+            path, data,
+            file_options={'content-type': content_type, 'upsert': 'true'}
+        )
+        return True
+    except Exception as e:
+        print('sb_upload error:', e)
+        return False
 
 SECRET_KEY  = 'tape_secret_change_in_production'
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'mmcannel@gmail.com')
@@ -279,99 +303,104 @@ def check_access(user):
     return False, 'no_access'
 
 # ── Сканирование треков ──────────────────────────────────
-def track_id(artist_folder, album_folder, fname):
-    return f'{artist_folder}/{album_folder}/{fname}'
-
 def scan_library(include_disabled=False):
     with get_db() as db:
         cur = db.cursor()
         cur.execute('SELECT id, enabled, reason FROM track_state')
         rows = cur.fetchall()
-    states = {r['id']: {'enabled': bool(r['enabled']), 'reason': r['reason']} for r in rows}
+        cur.execute('SELECT id, type, year, extra_artists, cover_url FROM album_meta')
+        meta_rows = cur.fetchall()
+    states        = {r['id']: {'enabled': bool(r['enabled']), 'reason': r['reason']} for r in rows}
+    album_meta_db = {r['id']: dict(r) for r in meta_rows}
 
     library = {}
-    if not os.path.isdir(TRACKS_DIR):
-        return library
 
-    for artist_folder in sorted(os.listdir(TRACKS_DIR)):
-        artist_path = os.path.join(TRACKS_DIR, artist_folder)
-        if not os.path.isdir(artist_path): continue
+    # Папки артистов (id=None означает папку в Supabase)
+    for artist_item in sb_list(''):
+        if artist_item.get('id') is not None:
+            continue
+        artist_folder = artist_item.get('name', '')
+        if not artist_folder:
+            continue
 
-        for album_folder in sorted(os.listdir(artist_path)):
-            album_path = os.path.join(artist_path, album_folder)
-            if not os.path.isdir(album_path): continue
+        for album_item in sb_list(artist_folder):
+            if album_item.get('id') is not None:
+                continue
+            album_folder = album_item.get('name', '')
+            if not album_folder:
+                continue
 
-            album_id = f'{artist_folder}/{album_folder}'
-            album_state = states.get(album_id, {})
+            album_id     = f'{artist_folder}/{album_folder}'
+            album_state  = states.get(album_id, {})
             album_enabled = album_state.get('enabled', True)
-            album_reason = album_state.get('reason', '')
+            album_reason  = album_state.get('reason', '')
+            ameta        = album_meta_db.get(album_id, {})
 
-            cover_url = None
-            for name in ['cover.jpg','cover.png','folder.jpg','artwork.jpg']:
-                if os.path.exists(os.path.join(album_path, name)):
-                    cover_url = f'/tracks/{urllib.parse.quote(artist_folder)}/{urllib.parse.quote(album_folder)}/{name}'
-                    break
+            file_items = sb_list(f'{artist_folder}/{album_folder}')
 
-            af = os.path.join(album_path, 'artists.txt')
-            if os.path.exists(af):
-                with open(af, encoding='utf-8') as f:
-                    raw = [a.strip() for a in f.read().split(',') if a.strip()]
-                all_artists = list(dict.fromkeys(raw))
-            else:
-                all_artists = [artist_folder]
+            # Обложка
+            cover_url = ameta.get('cover_url') or None
+            if not cover_url:
+                for fi in file_items:
+                    if fi.get('name','').lower() in ('cover.jpg','cover.png','folder.jpg','artwork.jpg'):
+                        cover_url = sb_public_url(f'{artist_folder}/{album_folder}/{fi["name"]}')
+                        break
+
+            # Артисты
+            all_artists = [artist_folder]
+            if ameta.get('extra_artists'):
+                raw = [a.strip() for a in ameta['extra_artists'].split(',') if a.strip()]
+                if raw:
+                    all_artists = list(dict.fromkeys([artist_folder] + raw))
 
             tracks = []
-            for fname in sorted(os.listdir(album_path)):
-                if not fname.lower().endswith(SUPPORTED): continue
-                tid = track_id(artist_folder, album_folder, fname)
-                t_state = states.get(tid, {})
+            for fi in sorted(file_items, key=lambda x: x.get('name','')):
+                fname = fi.get('name', '')
+                if not fname.lower().endswith(SUPPORTED):
+                    continue
+                tid      = f'{artist_folder}/{album_folder}/{fname}'
+                t_state  = states.get(tid, {})
                 t_enabled = album_enabled and t_state.get('enabled', True)
-                t_reason = t_state.get('reason', '') or album_reason
-
-                fpath_full = os.path.join(album_path, fname)
-                tags = read_tags(fpath_full)
-                title = tags.get('title') or re.sub(r'^\d+[\s\-_.]+', '', os.path.splitext(fname)[0]).strip()
-                url = f'/tracks/{urllib.parse.quote(artist_folder)}/{urllib.parse.quote(album_folder)}/{urllib.parse.quote(fname)}'
+                t_reason  = t_state.get('reason','') or album_reason
+                title    = re.sub(r'^\d+[\s\-_.]+', '', os.path.splitext(fname)[0]).strip()
                 track = {
-                    'id': tid,
-                    'title': title,
-                    'artist': ', '.join(all_artists),
-                    'album': album_folder,
-                    'url': url,
-                    'cover': cover_url,
+                    'id':      tid,
+                    'title':   title,
+                    'artist':  ', '.join(all_artists),
+                    'album':   album_folder,
+                    'url':     sb_public_url(tid),
+                    'cover':   cover_url,
                     'enabled': t_enabled,
-                    'reason': t_reason,
+                    'reason':  t_reason,
                 }
                 if include_disabled or t_enabled:
                     tracks.append(track)
-                elif not include_disabled:
-                    tracks.append({**track, 'disabled': True})
 
-            if not tracks: continue
+            if not tracks:
+                continue
 
-            seen_key = album_id
             for artist in all_artists:
                 if artist not in library: library[artist] = {}
                 if album_folder not in library[artist]:
                     library[artist][album_folder] = {
-                        'tracks': tracks,
-                        'cover': cover_url,
+                        'tracks':  tracks,
+                        'cover':   cover_url,
                         'enabled': album_enabled,
-                        'reason': album_reason,
-                        '_src': seen_key,
+                        'reason':  album_reason,
+                        'type':    ameta.get('type', 'album'),
+                        'year':    ameta.get('year', ''),
+                        'artists': ', '.join(all_artists),
                     }
-                elif library[artist][album_folder].get('_src') != seen_key:
-                    pass
 
     return library
 
-# ── Сохранение загруженного файла ────────────────────────
-def save_upload(data, filename, subfolder):
+# ── Сохранение фото артиста (локально) ──────────────────
+def save_photo(data, filename):
     safe = re.sub(r'[^\w\-_.]', '_', filename)
-    path = os.path.join(UPLOADS_DIR, subfolder, safe)
+    path = os.path.join(UPLOADS_DIR, 'photos', safe)
     with open(path, 'wb') as f:
         f.write(data)
-    return f'/uploads/{subfolder}/{safe}'
+    return f'/uploads/photos/{safe}' 
 
 # ── HTTP Handler ─────────────────────────────────────────
 class H(http.server.SimpleHTTPRequestHandler):
@@ -781,7 +810,7 @@ class H(http.server.SimpleHTTPRequestHandler):
                     if fi['filename']:
                         ext = os.path.splitext(fi['filename'])[1].lower() or '.jpg'
                         safe_name = re.sub(r'[^\w]', '_', name)
-                        photo_url = save_upload(fi['data'], safe_name + ext, 'photos')
+                        photo_url = save_photo(fi['data'], safe_name + ext)
                 bio = fields.get('bio', '')
                 photo = photo_url or fields.get('photo', '')
             else:
@@ -850,15 +879,17 @@ class H(http.server.SimpleHTTPRequestHandler):
             album  = fields.get('album', '').strip()
             if not artist or not album:
                 return self.send_json({'error':'artist и album обязательны'}, 400)
-            album_path = os.path.join(TRACKS_DIR, artist, album)
-            os.makedirs(album_path, exist_ok=True)
             saved = []
             for key, fi in files.items():
                 if fi['filename']:
-                    fpath = os.path.join(album_path, fi['filename'])
-                    with open(fpath, 'wb') as fp:
-                        fp.write(fi['data'])
-                    saved.append(fi['filename'])
+                    ext = os.path.splitext(fi['filename'])[1].lower()
+                    ct_map = {'.mp3':'audio/mpeg','.flac':'audio/flac','.m4a':'audio/mp4',
+                              '.wav':'audio/wav','.ogg':'audio/ogg'}
+                    mime = ct_map.get(ext, 'audio/mpeg')
+                    sb_path = f"{artist}/{album}/{fi['filename']}"
+                    ok = sb_upload(sb_path, fi['data'], mime)
+                    if ok:
+                        saved.append(fi['filename'])
             self.send_json({'ok':True, 'saved':saved})
 
         elif path == '/api/admin/grant':
@@ -943,13 +974,21 @@ class H(http.server.SimpleHTTPRequestHandler):
             fields, files = parse_multipart(self.rfile, self.headers)
             album_id = fields.get('album_id','')
             if not album_id: return self.send_json({'error':'album_id required'}, 400)
-            parts = album_id.split('/', 1)
-            if len(parts) == 2:
-                cover_path = os.path.join(TRACKS_DIR, parts[0], parts[1], 'cover.jpg')
-                fi = files.get('cover')
-                if fi:
-                    with open(cover_path, 'wb') as f: f.write(fi['data'])
-                    url = f'/tracks/{urllib.parse.quote(parts[0])}/{urllib.parse.quote(parts[1])}/cover.jpg'
+            fi = files.get('cover')
+            if fi:
+                sb_path = f"{album_id}/cover.jpg"
+                ok = sb_upload(sb_path, fi['data'], 'image/jpeg')
+                if ok:
+                    url = sb_public_url(sb_path)
+                    # Сохраняем cover_url в album_meta
+                    with get_db() as db:
+                        cur = db.cursor()
+                        cur.execute(
+                            """INSERT INTO album_meta (id, cover_url) VALUES (%s,%s)
+                               ON CONFLICT(id) DO UPDATE SET cover_url=EXCLUDED.cover_url""",
+                            (album_id, url)
+                        )
+                        db.commit()
                     self.send_json({'ok':True,'url':url})
                     return
             self.send_json({'error':'failed'}, 400)
