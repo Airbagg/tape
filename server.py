@@ -5,12 +5,18 @@ import ssl
 import os
 import json
 import re
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import hashlib
 import time
 import secrets
 import base64
 import io
+from supabase import create_client
+
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 try:
     from mutagen.id3 import ID3
@@ -100,7 +106,6 @@ ctx.verify_mode = ssl.CERT_NONE
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 TRACKS_DIR  = os.path.join(BASE_DIR, 'tracks')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'uploads')
-DB_PATH     = os.path.join(BASE_DIR, 'tape.db')
 SUPPORTED   = ('.mp3', '.m4a', '.flac', '.wav', '.ogg')
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
@@ -113,101 +118,104 @@ ADMIN_PASS  = os.environ.get('ADMIN_PASS', 'admin1234')
 TRIAL_DAYS  = 2
 SUB_PRICE   = 299
 
-# Telegram бот для верификации
 TG_BOT_TOKEN = '8729241382:AAHelxuQXziTWAF0s6edOggzNuV3uI5k2Hg'
 TG_ADMIN_CHAT = '464389692'
 
-# Временное хранилище кодов верификации {email: {code, expires}}
 _tg_verify_codes = {}
 
 # ── БД ──────────────────────────────────────────────────
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(os.environ.get('DATABASE_URL'), cursor_factory=psycopg2.extras.RealDictCursor)
+    conn.autocommit = False
     return conn
 
 def init_db():
     with get_db() as db:
-        db.executescript('''
+        cur = db.cursor()
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                id         SERIAL PRIMARY KEY,
                 email      TEXT UNIQUE NOT NULL,
                 password   TEXT NOT NULL,
                 role       TEXT DEFAULT 'user',
-                trial_ends INTEGER,
+                trial_ends BIGINT,
                 sub_active INTEGER DEFAULT 0,
-                sub_ends   INTEGER,
-                created_at INTEGER DEFAULT (strftime('%s','now'))
-            );
+                sub_ends   BIGINT,
+                last_seen  BIGINT DEFAULT 0,
+                created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+            )
+        ''')
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS artists (
                 name    TEXT PRIMARY KEY,
                 photo   TEXT,
                 bio     TEXT,
-                updated INTEGER DEFAULT (strftime('%s','now'))
-            );
+                updated BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+            )
+        ''')
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS tokens (
                 token      TEXT PRIMARY KEY,
                 user_id    INTEGER,
-                expires_at INTEGER
-            );
+                expires_at BIGINT
+            )
+        ''')
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS track_state (
                 id         TEXT PRIMARY KEY,
                 enabled    INTEGER DEFAULT 1,
                 reason     TEXT DEFAULT ''
-            );
+            )
+        ''')
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS user_likes (
                 user_id    INTEGER,
                 track_key  TEXT,
                 PRIMARY KEY (user_id, track_key)
-            );
+            )
+        ''')
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS user_plugins (
-                user_id    INTEGER,
-                data       TEXT,
-                PRIMARY KEY (user_id)
-            );
-            CREATE TABLE IF NOT EXISTS album_meta (
-                id         TEXT PRIMARY KEY,
-                type       TEXT DEFAULT 'album',
-                year       TEXT,
-                extra_artists TEXT,
-                cover_url  TEXT
-            );
-            CREATE TABLE IF NOT EXISTS user_bans (
                 user_id    INTEGER PRIMARY KEY,
-                reason     TEXT,
-                ban_type   TEXT DEFAULT 'email',
-                banned_by  TEXT,
-                banned_at  INTEGER DEFAULT (strftime('%s','now'))
-            );
+                data       TEXT
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS album_meta (
+                id            TEXT PRIMARY KEY,
+                type          TEXT DEFAULT 'album',
+                year          TEXT,
+                extra_artists TEXT,
+                cover_url     TEXT
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS user_bans (
+                user_id   INTEGER PRIMARY KEY,
+                reason    TEXT,
+                ban_type  TEXT DEFAULT 'email',
+                banned_by TEXT,
+                banned_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+            )
+        ''')
+        cur.execute('''
             CREATE TABLE IF NOT EXISTS sub_grants (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                id         SERIAL PRIMARY KEY,
                 user_id    INTEGER,
                 days       INTEGER,
                 amount     INTEGER DEFAULT 0,
                 source     TEXT DEFAULT 'admin',
                 note       TEXT DEFAULT '',
-                created_at INTEGER DEFAULT (strftime('%s','now'))
-            );
+                created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+            )
         ''')
-        # Миграции — добавляем колонки если БД старая
-        try:
-            db.execute('ALTER TABLE users ADD COLUMN last_seen INTEGER DEFAULT 0')
-        except Exception:
-            pass
-        try:
-            db.execute('ALTER TABLE user_bans ADD COLUMN ban_type TEXT DEFAULT "email"')
-        except Exception:
-            pass
-        try:
-            db.execute('ALTER TABLE sub_grants ADD COLUMN source TEXT DEFAULT "admin"')
-        except Exception:
-            pass
-        existing = db.execute('SELECT id FROM users WHERE email=?', (ADMIN_EMAIL,)).fetchone()
+        cur.execute('SELECT id FROM users WHERE email=%s', (ADMIN_EMAIL,))
+        existing = cur.fetchone()
         if not existing:
-            db.execute('INSERT INTO users (email,password,role,sub_active) VALUES (?,?,?,1)',
+            cur.execute('INSERT INTO users (email,password,role,sub_active) VALUES (%s,%s,%s,1)',
                        (ADMIN_EMAIL, hash_password(ADMIN_PASS), 'admin'))
         db.commit()
-    print(f'   DB: {DB_PATH}')
+    print('   DB: PostgreSQL via Supabase')
 
 # ── Auth ─────────────────────────────────────────────────
 def tg_send(chat_id, text):
@@ -233,7 +241,8 @@ def hash_password(pw):
 def make_token(user_id):
     token = secrets.token_hex(32)
     with get_db() as db:
-        db.execute('INSERT INTO tokens (token,user_id,expires_at) VALUES (?,?,?)',
+        cur = db.cursor()
+        cur.execute('INSERT INTO tokens (token,user_id,expires_at) VALUES (%s,%s,%s)',
                    (token, user_id, int(time.time()) + 86400*30))
         db.commit()
     return token
@@ -242,11 +251,12 @@ def get_user_by_token(token):
     if not token: return None
     now = int(time.time())
     with get_db() as db:
-        row = db.execute('''SELECT u.* FROM users u JOIN tokens t ON t.user_id=u.id
-                            WHERE t.token=? AND t.expires_at>?''',
-                         (token, now)).fetchone()
+        cur = db.cursor()
+        cur.execute('''SELECT u.* FROM users u JOIN tokens t ON t.user_id=u.id
+                       WHERE t.token=%s AND t.expires_at>%s''', (token, now))
+        row = cur.fetchone()
         if row:
-            db.execute('UPDATE users SET last_seen=? WHERE id=?', (now, row['id']))
+            cur.execute('UPDATE users SET last_seen=%s WHERE id=%s', (now, row['id']))
             db.commit()
     return dict(row) if row else None
 
@@ -261,7 +271,8 @@ def check_access(user):
         if not user['sub_ends'] or user['sub_ends'] > int(time.time()):
             return True, 'subscriber'
         with get_db() as db:
-            db.execute('UPDATE users SET sub_active=0 WHERE id=?', (user['id'],))
+            cur = db.cursor()
+            cur.execute('UPDATE users SET sub_active=0 WHERE id=%s', (user['id'],))
             db.commit()
     if user['trial_ends'] and user['trial_ends'] > int(time.time()):
         return True, 'trial'
@@ -272,9 +283,10 @@ def track_id(artist_folder, album_folder, fname):
     return f'{artist_folder}/{album_folder}/{fname}'
 
 def scan_library(include_disabled=False):
-    # Загружаем состояния треков из БД
     with get_db() as db:
-        rows = db.execute('SELECT id, enabled, reason FROM track_state').fetchall()
+        cur = db.cursor()
+        cur.execute('SELECT id, enabled, reason FROM track_state')
+        rows = cur.fetchall()
     states = {r['id']: {'enabled': bool(r['enabled']), 'reason': r['reason']} for r in rows}
 
     library = {}
@@ -289,7 +301,6 @@ def scan_library(include_disabled=False):
             album_path = os.path.join(artist_path, album_folder)
             if not os.path.isdir(album_path): continue
 
-            # Альбом целиком может быть отключён
             album_id = f'{artist_folder}/{album_folder}'
             album_state = states.get(album_id, {})
             album_enabled = album_state.get('enabled', True)
@@ -305,7 +316,6 @@ def scan_library(include_disabled=False):
             if os.path.exists(af):
                 with open(af, encoding='utf-8') as f:
                     raw = [a.strip() for a in f.read().split(',') if a.strip()]
-                # Убираем дубли и имя папки если оно уже есть в списке
                 all_artists = list(dict.fromkeys(raw))
             else:
                 all_artists = [artist_folder]
@@ -335,16 +345,13 @@ def scan_library(include_disabled=False):
                 if include_disabled or t_enabled:
                     tracks.append(track)
                 elif not include_disabled:
-                    # Для юзеров — включаем но помечаем как disabled
                     tracks.append({**track, 'disabled': True})
 
             if not tracks: continue
 
-            # Используем уникальный ключ артист+альбом чтобы не дублировать
-            seen_key = album_id  # artist_folder/album_folder
+            seen_key = album_id
             for artist in all_artists:
                 if artist not in library: library[artist] = {}
-                # Ключ альбома — само название, но данные пишем только один раз
                 if album_folder not in library[artist]:
                     library[artist][album_folder] = {
                         'tracks': tracks,
@@ -354,7 +361,6 @@ def scan_library(include_disabled=False):
                         '_src': seen_key,
                     }
                 elif library[artist][album_folder].get('_src') != seen_key:
-                    # Уже есть альбом с таким именем от другого артиста — пропускаем
                     pass
 
     return library
@@ -394,7 +400,6 @@ class H(http.server.SimpleHTTPRequestHandler):
         return get_user_by_token(get_token_from_headers(self.headers))
 
     def serve_file(self, path):
-        """Отдаёт статику из BASE_DIR с поддержкой Range для аудио"""
         try:
             fpath = os.path.join(BASE_DIR, urllib.parse.unquote(path.lstrip('/')))
             if not os.path.isfile(fpath):
@@ -404,18 +409,17 @@ class H(http.server.SimpleHTTPRequestHandler):
                   '.mp3':'audio/mpeg','.m4a':'audio/mp4','.flac':'audio/flac',
                   '.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png',
                   '.svg':'image/svg+xml','.wav':'audio/wav','.ogg':'audio/ogg'}.get(ext,'application/octet-stream')
-            
+
             file_size = os.path.getsize(fpath)
             range_header = self.headers.get('Range')
-            
+
             if range_header and ext in ('.mp3', '.m4a', '.flac', '.wav', '.ogg'):
-                # Range request — для стриминга аудио
                 ranges = range_header.replace('bytes=', '').split('-')
                 start = int(ranges[0]) if ranges[0] else 0
                 end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
                 end = min(end, file_size - 1)
                 length = end - start + 1
-                
+
                 self.send_response(206)
                 self.send_header('Content-Type', mt)
                 self.send_header('Content-Length', length)
@@ -461,7 +465,6 @@ class H(http.server.SimpleHTTPRequestHandler):
             user = self.current_user()
             ok, reason = check_access(user)
             if not ok: return self.send_json({'error':reason}, 403)
-            # Для юзеров disabled треки включены но помечены
             self.send_json(scan_library(include_disabled=False))
 
         elif path == '/api/library/admin':
@@ -472,13 +475,17 @@ class H(http.server.SimpleHTTPRequestHandler):
 
         elif path == '/api/artists':
             with get_db() as db:
-                rows = db.execute('SELECT * FROM artists ORDER BY name').fetchall()
+                cur = db.cursor()
+                cur.execute('SELECT * FROM artists ORDER BY name')
+                rows = cur.fetchall()
             self.send_json([dict(r) for r in rows])
 
         elif path.startswith('/api/artists/'):
             name = urllib.parse.unquote(path[len('/api/artists/'):])
             with get_db() as db:
-                row = db.execute('SELECT * FROM artists WHERE name=?', (name,)).fetchone()
+                cur = db.cursor()
+                cur.execute('SELECT * FROM artists WHERE name=%s', (name,))
+                row = cur.fetchone()
             self.send_json(dict(row) if row else {'name':name,'photo':None,'bio':None})
 
         elif path == '/api/users':
@@ -486,8 +493,11 @@ class H(http.server.SimpleHTTPRequestHandler):
             if not user or user['role'] != 'admin':
                 return self.send_json({'error':'forbidden'}, 403)
             with get_db() as db:
-                rows = db.execute('SELECT id,email,role,trial_ends,sub_active,sub_ends,created_at FROM users ORDER BY created_at DESC').fetchall()
-                bans = {r['user_id']:dict(r) for r in db.execute('SELECT * FROM user_bans').fetchall()}
+                cur = db.cursor()
+                cur.execute('SELECT id,email,role,trial_ends,sub_active,sub_ends,created_at FROM users ORDER BY created_at DESC')
+                rows = cur.fetchall()
+                cur.execute('SELECT * FROM user_bans')
+                bans = {r['user_id']:dict(r) for r in cur.fetchall()}
             result = []
             for r in rows:
                 u = dict(r)
@@ -502,12 +512,16 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self.send_json({'error':'forbidden'}, 403)
             uid = int(path.split('/')[-1])
             with get_db() as db:
-                row  = db.execute('SELECT id,email,role,trial_ends,sub_active,sub_ends,created_at FROM users WHERE id=?', (uid,)).fetchone()
-                ban  = db.execute('SELECT * FROM user_bans WHERE user_id=?', (uid,)).fetchone()
-                likes = db.execute('SELECT COUNT(*) FROM user_likes WHERE user_id=?', (uid,)).fetchone()[0]
+                cur = db.cursor()
+                cur.execute('SELECT id,email,role,trial_ends,sub_active,sub_ends,created_at FROM users WHERE id=%s', (uid,))
+                row = cur.fetchone()
+                cur.execute('SELECT * FROM user_bans WHERE user_id=%s', (uid,))
+                ban = cur.fetchone()
+                cur.execute('SELECT COUNT(*) as cnt FROM user_likes WHERE user_id=%s', (uid,))
+                likes = cur.fetchone()['cnt']
                 try:
-                    grants = db.execute('SELECT * FROM sub_grants WHERE user_id=? ORDER BY created_at DESC LIMIT 5', (uid,)).fetchall()
-                    grant_history = [dict(g) for g in grants]
+                    cur.execute('SELECT * FROM sub_grants WHERE user_id=%s ORDER BY created_at DESC LIMIT 5', (uid,))
+                    grant_history = [dict(g) for g in cur.fetchall()]
                 except:
                     grant_history = []
             if not row: return self.send_json({'error':'not found'}, 404)
@@ -524,7 +538,9 @@ class H(http.server.SimpleHTTPRequestHandler):
             if not user or user['role'] != 'admin':
                 return self.send_json({'error':'forbidden'}, 403)
             with get_db() as db:
-                rows = db.execute('SELECT * FROM album_meta').fetchall()
+                cur = db.cursor()
+                cur.execute('SELECT * FROM album_meta')
+                rows = cur.fetchall()
             self.send_json([dict(r) for r in rows])
 
         elif path.startswith('/api/album-meta/'):
@@ -533,21 +549,27 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self.send_json({'error':'forbidden'}, 403)
             album_id = urllib.parse.unquote(path[len('/api/album-meta/'):])
             with get_db() as db:
-                row = db.execute('SELECT * FROM album_meta WHERE id=?', (album_id,)).fetchone()
+                cur = db.cursor()
+                cur.execute('SELECT * FROM album_meta WHERE id=%s', (album_id,))
+                row = cur.fetchone()
             self.send_json(dict(row) if row else {'id':album_id,'type':'album','year':'','extra_artists':'','cover_url':''})
 
         elif path == '/api/likes':
             user = self.current_user()
             if not user: return self.send_json({'error':'unauthorized'}, 401)
             with get_db() as db:
-                rows = db.execute('SELECT track_key FROM user_likes WHERE user_id=?', (user['id'],)).fetchall()
+                cur = db.cursor()
+                cur.execute('SELECT track_key FROM user_likes WHERE user_id=%s', (user['id'],))
+                rows = cur.fetchall()
             self.send_json([r['track_key'] for r in rows])
 
         elif path == '/api/plugins':
             user = self.current_user()
             if not user: return self.send_json({'error':'unauthorized'}, 401)
             with get_db() as db:
-                row = db.execute('SELECT data FROM user_plugins WHERE user_id=?', (user['id'],)).fetchone()
+                cur = db.cursor()
+                cur.execute('SELECT data FROM user_plugins WHERE user_id=%s', (user['id'],))
+                row = cur.fetchone()
             self.send_json(json.loads(row['data']) if row else [])
 
         elif path == '/lastfm':
@@ -565,29 +587,40 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self.send_json({'error':'forbidden'}, 403)
             now = int(time.time())
             with get_db() as db:
-                total_users   = db.execute('SELECT COUNT(*) FROM users WHERE role!="admin"').fetchone()[0]
-                active_subs   = db.execute('SELECT COUNT(*) FROM users WHERE sub_active=1 AND (sub_ends IS NULL OR sub_ends>?) AND role!="admin"', (now,)).fetchone()[0]
-                trial_users   = db.execute('SELECT COUNT(*) FROM users WHERE trial_ends>? AND sub_active=0 AND role!="admin"', (now,)).fetchone()[0]
-                expired_users = db.execute('SELECT COUNT(*) FROM users WHERE (trial_ends IS NULL OR trial_ends<=?) AND (sub_active=0 OR sub_ends<=?) AND role!="admin"', (now,now)).fetchone()[0]
-                # last_seen может не быть в старой БД — обработаем
+                cur = db.cursor()
+                cur.execute("SELECT COUNT(*) as cnt FROM users WHERE role!='admin'")
+                total_users = cur.fetchone()['cnt']
+                cur.execute("SELECT COUNT(*) as cnt FROM users WHERE sub_active=1 AND (sub_ends IS NULL OR sub_ends>%s) AND role!='admin'", (now,))
+                active_subs = cur.fetchone()['cnt']
+                cur.execute("SELECT COUNT(*) as cnt FROM users WHERE trial_ends>%s AND sub_active=0 AND role!='admin'", (now,))
+                trial_users = cur.fetchone()['cnt']
+                cur.execute("SELECT COUNT(*) as cnt FROM users WHERE (trial_ends IS NULL OR trial_ends<=%s) AND (sub_active=0 OR sub_ends<=%s) AND role!='admin'", (now,now))
+                expired_users = cur.fetchone()['cnt']
                 try:
-                    online_users = db.execute('SELECT COUNT(*) FROM users WHERE last_seen>?', (now-300,)).fetchone()[0]
+                    cur.execute('SELECT COUNT(*) as cnt FROM users WHERE last_seen>%s', (now-300,))
+                    online_users = cur.fetchone()['cnt']
                 except:
                     online_users = 0
-                banned_users  = db.execute('SELECT COUNT(*) FROM user_bans').fetchone()[0]
-                total_likes   = db.execute('SELECT COUNT(*) FROM user_likes').fetchone()[0]
+                cur.execute('SELECT COUNT(*) as cnt FROM user_bans')
+                banned_users = cur.fetchone()['cnt']
+                cur.execute('SELECT COUNT(*) as cnt FROM user_likes')
+                total_likes = cur.fetchone()['cnt']
                 try:
-                    revenue = db.execute("SELECT COALESCE(SUM(amount),0) FROM sub_grants WHERE source='payment' OR source IS NULL AND amount>0").fetchone()[0]
+                    cur.execute("SELECT COALESCE(SUM(amount),0) as s FROM sub_grants WHERE source='payment' OR source IS NULL AND amount>0")
+                    revenue = cur.fetchone()['s']
                 except:
                     revenue = 0
-                new_today = db.execute('SELECT COUNT(*) FROM users WHERE created_at>=?', (now-86400,)).fetchone()[0]
-                new_week  = db.execute('SELECT COUNT(*) FROM users WHERE created_at>=?', (now-86400*7,)).fetchone()[0]
+                cur.execute('SELECT COUNT(*) as cnt FROM users WHERE created_at>=%s', (now-86400,))
+                new_today = cur.fetchone()['cnt']
+                cur.execute('SELECT COUNT(*) as cnt FROM users WHERE created_at>=%s', (now-86400*7,))
+                new_week = cur.fetchone()['cnt']
 
                 regs = []
                 for i in range(6, -1, -1):
                     d0 = now - 86400*(i+1)
                     d1 = now - 86400*i
-                    cnt = db.execute('SELECT COUNT(*) FROM users WHERE created_at>=? AND created_at<?', (d0,d1)).fetchone()[0]
+                    cur.execute('SELECT COUNT(*) as cnt FROM users WHERE created_at>=%s AND created_at<%s', (d0,d1))
+                    cnt = cur.fetchone()['cnt']
                     regs.append({'day':i,'ts':d1,'count':cnt})
 
                 subs_7d = []
@@ -595,17 +628,19 @@ class H(http.server.SimpleHTTPRequestHandler):
                     d0 = now - 86400*(i+1)
                     d1 = now - 86400*i
                     try:
-                        cnt = db.execute("SELECT COUNT(*) FROM sub_grants WHERE (source='payment') AND created_at>=? AND created_at<?", (d0,d1)).fetchone()[0]
-                        amt = db.execute("SELECT COALESCE(SUM(amount),0) FROM sub_grants WHERE (source='payment') AND created_at>=? AND created_at<?", (d0,d1)).fetchone()[0]
+                        cur.execute("SELECT COUNT(*) as cnt FROM sub_grants WHERE source='payment' AND created_at>=%s AND created_at<%s", (d0,d1))
+                        cnt = cur.fetchone()['cnt']
+                        cur.execute("SELECT COALESCE(SUM(amount),0) as s FROM sub_grants WHERE source='payment' AND created_at>=%s AND created_at<%s", (d0,d1))
+                        amt = cur.fetchone()['s']
                     except:
                         cnt, amt = 0, 0
                     subs_7d.append({'day':i,'ts':d1,'count':cnt,'amount':amt})
 
                 try:
-                    grants = db.execute('''SELECT sg.*, u.email FROM sub_grants sg
-                                           JOIN users u ON u.id=sg.user_id
-                                           ORDER BY sg.created_at DESC LIMIT 8''').fetchall()
-                    recent_grants = [dict(g) for g in grants]
+                    cur.execute('''SELECT sg.*, u.email FROM sub_grants sg
+                                   JOIN users u ON u.id=sg.user_id
+                                   ORDER BY sg.created_at DESC LIMIT 8''')
+                    recent_grants = [dict(g) for g in cur.fetchall()]
                 except:
                     recent_grants = []
 
@@ -662,19 +697,17 @@ class H(http.server.SimpleHTTPRequestHandler):
             email = (body.get('email') or '').strip().lower()
             if not email:
                 return self.send_json({'error': 'email обязателен'}, 400)
-            # Проверяем что email ещё не зарегистрирован
             with get_db() as db:
-                exists = db.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
+                cur = db.cursor()
+                cur.execute('SELECT id FROM users WHERE email=%s', (email,))
+                exists = cur.fetchone()
             if exists:
                 return self.send_json({'error': 'Email уже зарегистрирован'}, 409)
-            # Генерируем 6-значный код
             code = str(secrets.randbelow(900000) + 100000)
             _tg_verify_codes[email] = {'code': code, 'expires': int(time.time()) + 600}
-            # Отправляем в TG
             msg = f'🎵 Tape — код подтверждения\n\nEmail: {email}\nКод: {code}\n\nДействует 10 минут.'
             sent = tg_send(TG_ADMIN_CHAT, msg)
             if not sent and not TG_BOT_TOKEN:
-                # Режим разработки — возвращаем код напрямую
                 return self.send_json({'ok': True, 'dev_code': code, 'dev_mode': True})
             if not sent:
                 return self.send_json({'error': 'Не удалось отправить код. Попробуй позже.'}, 500)
@@ -692,7 +725,6 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self.send_json({'error': 'Код истёк, запроси новый'}, 400)
             if entry['code'] != code:
                 return self.send_json({'error': 'Неверный код'}, 400)
-            # Код верный — помечаем как подтверждённый
             _tg_verify_codes[email]['verified'] = True
             self.send_json({'ok': True})
 
@@ -702,7 +734,6 @@ class H(http.server.SimpleHTTPRequestHandler):
             pw = body.get('password') or ''
             if not email or not pw: return self.send_json({'error':'email и пароль обязательны'}, 400)
             if len(pw) < 6: return self.send_json({'error':'Пароль минимум 6 символов'}, 400)
-            # Проверяем TG верификацию (если бот настроен)
             if TG_BOT_TOKEN:
                 entry = _tg_verify_codes.get(email)
                 if not entry or not entry.get('verified'):
@@ -711,13 +742,15 @@ class H(http.server.SimpleHTTPRequestHandler):
             trial_ends = int(time.time()) + 86400*TRIAL_DAYS
             try:
                 with get_db() as db:
-                    db.execute('INSERT INTO users (email,password,trial_ends) VALUES (?,?,?)',
+                    cur = db.cursor()
+                    cur.execute('INSERT INTO users (email,password,trial_ends) VALUES (%s,%s,%s)',
                                (email, hash_password(pw), trial_ends))
                     db.commit()
-                    user = db.execute('SELECT * FROM users WHERE email=?', (email,)).fetchone()
+                    cur.execute('SELECT * FROM users WHERE email=%s', (email,))
+                    user = cur.fetchone()
                 token = make_token(user['id'])
                 self.send_json({'token':token,'role':'user','trial_ends':trial_ends})
-            except sqlite3.IntegrityError:
+            except psycopg2.errors.UniqueViolation:
                 self.send_json({'error':'Email уже зарегистрирован'}, 409)
 
         elif path == '/api/auth/login':
@@ -725,8 +758,10 @@ class H(http.server.SimpleHTTPRequestHandler):
             email = (body.get('email') or '').strip().lower()
             pw = body.get('password') or ''
             with get_db() as db:
-                user = db.execute('SELECT * FROM users WHERE email=? AND password=?',
-                                  (email, hash_password(pw))).fetchone()
+                cur = db.cursor()
+                cur.execute('SELECT * FROM users WHERE email=%s AND password=%s',
+                            (email, hash_password(pw)))
+                user = cur.fetchone()
             if not user: return self.send_json({'error':'Неверный email или пароль'}, 401)
             token = make_token(user['id'])
             ok, reason = check_access(dict(user))
@@ -739,7 +774,6 @@ class H(http.server.SimpleHTTPRequestHandler):
             name = urllib.parse.unquote(path[len('/api/artists/'):])
             ct = self.headers.get('Content-Type','')
             if 'multipart/form-data' in ct:
-                # Загрузка фото через файл
                 fields, files = parse_multipart(self.rfile, self.headers)
                 photo_url = None
                 if 'photo_file' in files:
@@ -755,14 +789,14 @@ class H(http.server.SimpleHTTPRequestHandler):
                 photo = body.get('photo')
                 bio = body.get('bio')
             with get_db() as db:
-                db.execute('''INSERT INTO artists (name,photo,bio) VALUES (?,?,?)
-                              ON CONFLICT(name) DO UPDATE SET photo=excluded.photo,bio=excluded.bio,
-                              updated=strftime('%s','now')''', (name, photo, bio))
+                cur = db.cursor()
+                cur.execute('''INSERT INTO artists (name,photo,bio) VALUES (%s,%s,%s)
+                              ON CONFLICT(name) DO UPDATE SET photo=EXCLUDED.photo,bio=EXCLUDED.bio,
+                              updated=EXTRACT(EPOCH FROM NOW())::BIGINT''', (name, photo, bio))
                 db.commit()
             self.send_json({'ok':True, 'photo': photo})
 
         elif path == '/api/track-state':
-            # Вкл/выкл трека или альбома
             user = self.current_user()
             if not user or user['role'] != 'admin':
                 return self.send_json({'error':'forbidden'}, 403)
@@ -771,8 +805,9 @@ class H(http.server.SimpleHTTPRequestHandler):
             enabled = 1 if body.get('enabled', True) else 0
             reason = body.get('reason', '')
             with get_db() as db:
-                db.execute('''INSERT INTO track_state (id,enabled,reason) VALUES (?,?,?)
-                              ON CONFLICT(id) DO UPDATE SET enabled=excluded.enabled,reason=excluded.reason''',
+                cur = db.cursor()
+                cur.execute('''INSERT INTO track_state (id,enabled,reason) VALUES (%s,%s,%s)
+                              ON CONFLICT(id) DO UPDATE SET enabled=EXCLUDED.enabled,reason=EXCLUDED.reason''',
                            (tid, enabled, reason))
                 db.commit()
             self.send_json({'ok':True})
@@ -784,10 +819,11 @@ class H(http.server.SimpleHTTPRequestHandler):
             key = body.get('key', '')
             action = body.get('action', 'add')
             with get_db() as db:
+                cur = db.cursor()
                 if action == 'add':
-                    db.execute('INSERT OR IGNORE INTO user_likes (user_id,track_key) VALUES (?,?)', (user['id'], key))
+                    cur.execute('INSERT INTO user_likes (user_id,track_key) VALUES (%s,%s) ON CONFLICT DO NOTHING', (user['id'], key))
                 else:
-                    db.execute('DELETE FROM user_likes WHERE user_id=? AND track_key=?', (user['id'], key))
+                    cur.execute('DELETE FROM user_likes WHERE user_id=%s AND track_key=%s', (user['id'], key))
                 db.commit()
             self.send_json({'ok': True})
 
@@ -796,7 +832,8 @@ class H(http.server.SimpleHTTPRequestHandler):
             if not user: return self.send_json({'error':'unauthorized'}, 401)
             body = self.read_body()
             with get_db() as db:
-                db.execute('INSERT INTO user_plugins (user_id,data) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data',
+                cur = db.cursor()
+                cur.execute('INSERT INTO user_plugins (user_id,data) VALUES (%s,%s) ON CONFLICT(user_id) DO UPDATE SET data=EXCLUDED.data',
                            (user['id'], json.dumps(body.get('plugins', []))))
                 db.commit()
             self.send_json({'ok': True})
@@ -832,18 +869,21 @@ class H(http.server.SimpleHTTPRequestHandler):
             uid = body.get('user_id')
             if body.get('revoke'):
                 with get_db() as db:
-                    db.execute('UPDATE users SET sub_active=0,sub_ends=NULL WHERE id=?', (uid,))
+                    cur = db.cursor()
+                    cur.execute('UPDATE users SET sub_active=0,sub_ends=NULL WHERE id=%s', (uid,))
                     db.commit()
             else:
                 days = int(body.get('days', 30))
                 now = int(time.time())
                 with get_db() as db:
-                    cur = db.execute('SELECT sub_ends FROM users WHERE id=?', (uid,)).fetchone()
-                    base = max(cur['sub_ends'] or now, now)
+                    cur = db.cursor()
+                    cur.execute('SELECT sub_ends FROM users WHERE id=%s', (uid,))
+                    cur_row = cur.fetchone()
+                    base = max(cur_row['sub_ends'] or now, now)
                     sub_ends = base + 86400*days
-                    db.execute('UPDATE users SET sub_active=1,sub_ends=? WHERE id=?', (sub_ends, uid))
+                    cur.execute('UPDATE users SET sub_active=1,sub_ends=%s WHERE id=%s', (sub_ends, uid))
                     try:
-                        db.execute('INSERT INTO sub_grants (user_id,days,amount,source) VALUES (?,?,?,?)', (uid, days, 0, 'admin'))
+                        cur.execute('INSERT INTO sub_grants (user_id,days,amount,source) VALUES (%s,%s,%s,%s)', (uid, days, 0, 'admin'))
                     except Exception:
                         pass
                     db.commit()
@@ -859,20 +899,20 @@ class H(http.server.SimpleHTTPRequestHandler):
             if not uid: return self.send_json({'error':'bad request'}, 400)
             body = self.read_body()
             with get_db() as db:
+                cur = db.cursor()
                 if action == 'role':
                     role = body.get('role','user')
-                    db.execute('UPDATE users SET role=? WHERE id=?', (role, uid))
+                    cur.execute('UPDATE users SET role=%s WHERE id=%s', (role, uid))
                     db.commit()
                 elif action == 'ban':
                     reason   = body.get('reason','')
                     ban_type = body.get('ban_type', 'email')
-                    try:
-                        db.execute('INSERT OR REPLACE INTO user_bans (user_id,reason,ban_type) VALUES (?,?,?)', (uid, reason, ban_type))
-                    except Exception:
-                        db.execute('INSERT OR REPLACE INTO user_bans (user_id,reason) VALUES (?,?)', (uid, reason))
+                    cur.execute('''INSERT INTO user_bans (user_id,reason,ban_type) VALUES (%s,%s,%s)
+                                   ON CONFLICT(user_id) DO UPDATE SET reason=EXCLUDED.reason,ban_type=EXCLUDED.ban_type''',
+                               (uid, reason, ban_type))
                     db.commit()
                 elif action == 'unban':
-                    db.execute('DELETE FROM user_bans WHERE user_id=?', (uid,))
+                    cur.execute('DELETE FROM user_bans WHERE user_id=%s', (uid,))
                     db.commit()
             self.send_json({'ok':True})
 
@@ -883,8 +923,11 @@ class H(http.server.SimpleHTTPRequestHandler):
             album_id = urllib.parse.unquote(path[len('/api/album-meta/'):])
             body = self.read_body()
             with get_db() as db:
-                db.execute('''INSERT OR REPLACE INTO album_meta (id,type,year,extra_artists,cover_url)
-                              VALUES (?,?,?,?,?)''',
+                cur = db.cursor()
+                cur.execute('''INSERT INTO album_meta (id,type,year,extra_artists,cover_url)
+                              VALUES (%s,%s,%s,%s,%s)
+                              ON CONFLICT(id) DO UPDATE SET type=EXCLUDED.type,year=EXCLUDED.year,
+                              extra_artists=EXCLUDED.extra_artists,cover_url=EXCLUDED.cover_url''',
                            (album_id, body.get('type','album'), body.get('year',''),
                             body.get('extra_artists',''), body.get('cover_url','')))
                 db.commit()
@@ -900,7 +943,6 @@ class H(http.server.SimpleHTTPRequestHandler):
             fields, files = parse_multipart(self.rfile, self.headers)
             album_id = fields.get('album_id','')
             if not album_id: return self.send_json({'error':'album_id required'}, 400)
-            # album_id = "АртистПапка/АльбомПапка"
             parts = album_id.split('/', 1)
             if len(parts) == 2:
                 cover_path = os.path.join(TRACKS_DIR, parts[0], parts[1], 'cover.jpg')
@@ -923,7 +965,8 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self.send_json({'error':'forbidden'}, 403)
             name = urllib.parse.unquote(path[len('/api/artists/'):])
             with get_db() as db:
-                db.execute('DELETE FROM artists WHERE name=?', (name,))
+                cur = db.cursor()
+                cur.execute('DELETE FROM artists WHERE name=%s', (name,))
                 db.commit()
             self.send_json({'ok':True})
         else:
