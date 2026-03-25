@@ -497,30 +497,341 @@ async function saveAlbumMeta(){
   } else toast('Ошибка','error');
 }
 
-// ── Music upload ──────────────────────────────────────────
+// ── Music upload — META PREVIEW ──────────────────────────
+// Queue: array of {file, meta:{title,artist,album,year,type,artists,cover(blob/null)}}
+let _metaQueue = [];
+let _metaIdx = 0;
+
 function handleMusicDrop(e){
   e.preventDefault();
   document.getElementById('music-drop-zone').classList.remove('drag');
-  uploadMusic(e.dataTransfer.files);
+  openMetaPreview(e.dataTransfer.files);
 }
-async function uploadMusic(files){
-  const artist=document.getElementById('upload-artist').value.trim();
-  const album=document.getElementById('upload-album').value.trim();
-  const type=document.getElementById('upload-type').value;
-  const year=document.getElementById('upload-year').value;
-  const artists=document.getElementById('upload-artists').value.trim();
-  if(!artist||!album)return toast('Введи артиста и альбом','error');
-  if(!files.length)return;
-  const fd=new FormData();
-  fd.append('artist',artist);
-  fd.append('album',album);
-  fd.append('type',type);
-  if(year)fd.append('year',year);
-  if(artists)fd.append('artists',artists);
-  for(const f of files)fd.append('files',f);
-  const r=await fetch('/api/upload/music',{method:'POST',body:fd});
-  if(r.ok){const d=await r.json();toast(`Загружено: ${d.saved.join(', ')}`);loadTracksAdmin()}
-  else toast('Ошибка загрузки','error');
+
+async function openMetaPreview(fileList){
+  if(!fileList || !fileList.length) return;
+  _metaQueue = [];
+  _metaIdx = 0;
+  // Read basic metadata from each file using FileReader + ID3 simple parser
+  for(const file of fileList){
+    const meta = await readFileMeta(file);
+    _metaQueue.push({file, meta, status:'pending'}); // status: pending | done | error
+  }
+  renderMetaQueue();
+  activateMetaItem(0);
+  document.getElementById('meta-overlay').classList.add('open');
+}
+
+// Minimal ID3v2 / MP4 metadata reader (browser-side, no libs)
+async function readFileMeta(file){
+  const meta = {
+    title: stripExt(file.name),
+    artist: '',
+    album: '',
+    year: '',
+    type: 'album',
+    artists: '',
+    cover: null,      // ArrayBuffer of cover image
+    coverMime: null,
+    coverOverride: null // File object if user replaced
+  };
+  try {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+
+    if(ext === 'mp3'){
+      // ID3v2
+      if(bytes[0]===0x49 && bytes[1]===0x44 && bytes[2]===0x33){ // "ID3"
+        const id3ver = bytes[3];
+        let pos = 10;
+        // syncsafe int for tag size
+        const tagSize = ((bytes[6]&0x7f)<<21)|((bytes[7]&0x7f)<<14)|((bytes[8]&0x7f)<<7)|(bytes[9]&0x7f);
+        const end = Math.min(pos + tagSize, buf.byteLength);
+        while(pos + 10 < end){
+          const fid = String.fromCharCode(bytes[pos],bytes[pos+1],bytes[pos+2],bytes[pos+3]);
+          let fsize;
+          if(id3ver >= 4){
+            fsize = ((bytes[pos+4]&0x7f)<<21)|((bytes[pos+5]&0x7f)<<14)|((bytes[pos+6]&0x7f)<<7)|(bytes[pos+7]&0x7f);
+          } else {
+            fsize = view.getUint32(pos+4);
+          }
+          if(fsize <= 0 || fsize > 10*1024*1024) break;
+          const fstart = pos + 10;
+          const enc = bytes[fstart];
+          const isUtf16 = enc===1||enc===2;
+          const txt = isUtf16
+            ? decodeUTF16(bytes, fstart+1, fsize-1)
+            : decStr(bytes, fstart+1, fsize-1);
+          if(fid==='TIT2') meta.title = txt.trim() || meta.title;
+          if(fid==='TPE1') meta.artist = txt.trim();
+          if(fid==='TALB') meta.album = txt.trim();
+          if(fid==='TDRC'||fid==='TYER') meta.year = txt.trim().slice(0,4);
+          if(fid==='TPE2') meta.artists = txt.trim();
+          if(fid==='APIC'){
+            // APIC: enc(1) + mime(null-term) + pic_type(1) + desc(null-term) + data
+            let i = fstart+1;
+            const enc2 = bytes[fstart];
+            while(i<end && bytes[i]!==0) i++;
+            const mime = decStr(bytes, fstart+1, i-(fstart+1));
+            i++; // skip null
+            i++; // skip pic type
+            while(i<end && bytes[i]!==0) i++; // skip desc
+            i++;
+            meta.cover = buf.slice(i, fstart+fsize);
+            meta.coverMime = mime || 'image/jpeg';
+          }
+          pos = fstart + fsize;
+        }
+      }
+    } else if(ext === 'm4a' || ext === 'mp4'){
+      // Minimal MP4/M4A ilst parser
+      const mp4meta = parseMP4Meta(bytes, buf);
+      if(mp4meta.title) meta.title = mp4meta.title;
+      if(mp4meta.artist) meta.artist = mp4meta.artist;
+      if(mp4meta.album) meta.album = mp4meta.album;
+      if(mp4meta.year) meta.year = mp4meta.year;
+      if(mp4meta.cover){ meta.cover = mp4meta.cover; meta.coverMime = 'image/jpeg'; }
+    }
+  } catch(e){ /* silently fail, use filename */ }
+  return meta;
+}
+
+function parseMP4Meta(bytes, buf){
+  // Walk boxes to find moov/udta/meta/ilst
+  const result = {};
+  function readBox(offset, limit){
+    while(offset + 8 <= limit){
+      const size = ((bytes[offset]<<24)|(bytes[offset+1]<<16)|(bytes[offset+2]<<8)|bytes[offset+3]) >>> 0;
+      if(size < 8 || offset + size > limit) break;
+      const name = String.fromCharCode(bytes[offset+4],bytes[offset+5],bytes[offset+6],bytes[offset+7]);
+      const inner = offset + 8;
+      const innerEnd = offset + size;
+      if(name==='moov'||name==='udta'||name==='ilst') readBox(inner, innerEnd);
+      if(name==='meta') readBox(inner+4, innerEnd); // meta has 4-byte version/flags
+      const map = {'©nam':'title','©ART':'artist','©alb':'album','©day':'year','aART':'artists'};
+      if(map[name]){
+        // data atom inside
+        let di = inner;
+        while(di+8 <= innerEnd){
+          const ds = ((bytes[di]<<24)|(bytes[di+1]<<16)|(bytes[di+2]<<8)|bytes[di+3]) >>> 0;
+          const dn = String.fromCharCode(bytes[di+4],bytes[di+5],bytes[di+6],bytes[di+7]);
+          if(dn==='data' && ds > 16){
+            result[map[name]] = new TextDecoder().decode(buf.slice(di+16, di+ds));
+          }
+          di += ds || 8;
+        }
+      }
+      if(name==='covr'){
+        let di = inner;
+        while(di+8 <= innerEnd){
+          const ds = ((bytes[di]<<24)|(bytes[di+1]<<16)|(bytes[di+2]<<8)|bytes[di+3]) >>> 0;
+          const dn = String.fromCharCode(bytes[di+4],bytes[di+5],bytes[di+6],bytes[di+7]);
+          if(dn==='data' && ds > 16) result.cover = buf.slice(di+16, di+ds);
+          di += ds || 8;
+        }
+      }
+      offset += size;
+    }
+  }
+  readBox(0, bytes.length);
+  return result;
+}
+
+function decStr(bytes, start, len){
+  try{ return new TextDecoder('utf-8').decode(bytes.slice(start, start+len)).replace(/ /g,''); }
+  catch(e){ return ''; }
+}
+function decodeUTF16(bytes, start, len){
+  try{
+    // skip BOM if present
+    let s = start;
+    if(bytes[s]===0xff&&bytes[s+1]===0xfe || bytes[s]===0xfe&&bytes[s+1]===0xff) s+=2;
+    return new TextDecoder('utf-16le').decode(bytes.slice(s, start+len)).replace(/ /g,'');
+  }catch(e){ return ''; }
+}
+function stripExt(name){ return name.replace(/\.[^.]+$/, ''); }
+
+function coverBlobURL(item){
+  if(!item) return null;
+  if(item.meta.coverOverride) return URL.createObjectURL(item.meta.coverOverride);
+  if(item.meta.cover){
+    const blob = new Blob([item.meta.cover], {type: item.meta.coverMime||'image/jpeg'});
+    return URL.createObjectURL(blob);
+  }
+  return null;
+}
+
+function renderMetaQueue(){
+  const container = document.getElementById('meta-file-queue');
+  document.getElementById('meta-queue-counter').textContent =
+    `${_metaQueue.filter(i=>i.status==='done').length} / ${_metaQueue.length}`;
+  container.innerHTML = _metaQueue.map((item, idx) => {
+    const isActive = idx === _metaIdx;
+    const covURL = coverBlobURL(item);
+    const statusIcon = item.status==='done' ? '✅' : item.status==='error' ? '❌' : isActive ? '✏️' : '⏳';
+    return `<div class="meta-file-item ${isActive?'active':''} ${item.status}" onclick="activateMetaItem(${idx})">
+      <div class="meta-file-header">
+        <div class="meta-file-thumb">
+          ${covURL ? `<img src="${covURL}"/>` : '🎵'}
+        </div>
+        <div class="meta-file-info">
+          <div class="meta-file-name">${item.meta.title || item.file.name}</div>
+          <div class="meta-file-sub">${item.meta.artist||'—'} · ${item.meta.album||'—'}</div>
+        </div>
+        <div class="meta-file-status">${statusIcon}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function activateMetaItem(idx){
+  // Save current edits to previous active item before switching
+  if(_metaQueue[_metaIdx]) saveCurrentEdits();
+  _metaIdx = idx;
+  const item = _metaQueue[idx];
+  if(!item) return;
+  renderMetaQueue();
+  // Fill editor
+  document.getElementById('meta-title').value = item.meta.title || '';
+  document.getElementById('meta-artist').value = item.meta.artist || '';
+  document.getElementById('meta-album').value = item.meta.album || '';
+  document.getElementById('meta-year').value = item.meta.year || '';
+  document.getElementById('meta-type').value = item.meta.type || 'album';
+  document.getElementById('meta-artists').value = item.meta.artists || '';
+  // Cover
+  const covURL = coverBlobURL(item);
+  const preview = document.getElementById('meta-cover-preview');
+  const status = document.getElementById('meta-cover-status');
+  if(covURL){
+    preview.innerHTML = `<img src="${covURL}"/>`;
+    status.textContent = 'Обложка найдена в файле';
+    status.style.color = 'var(--green)';
+  } else {
+    preview.innerHTML = '🎵';
+    status.textContent = 'Нет обложки — можно добавить вручную';
+    status.style.color = 'var(--muted)';
+  }
+  // Progress
+  document.getElementById('meta-progress').classList.remove('show');
+  document.getElementById('meta-progress-fill').style.width = '0%';
+  // Button label
+  const remaining = _metaQueue.filter(i=>i.status==='pending').length;
+  const btn = document.getElementById('meta-upload-btn');
+  btn.innerHTML = `<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg> ЗАГРУЗИТЬ ${remaining > 1 ? '(1 из '+remaining+')' : ''}`;
+}
+
+function saveCurrentEdits(){
+  const item = _metaQueue[_metaIdx];
+  if(!item) return;
+  item.meta.title = document.getElementById('meta-title').value.trim();
+  item.meta.artist = document.getElementById('meta-artist').value.trim();
+  item.meta.album = document.getElementById('meta-album').value.trim();
+  item.meta.year = document.getElementById('meta-year').value.trim();
+  item.meta.type = document.getElementById('meta-type').value;
+  item.meta.artists = document.getElementById('meta-artists').value.trim();
+}
+
+function replaceMetaCover(input){
+  if(!input.files[0]) return;
+  const item = _metaQueue[_metaIdx];
+  if(!item) return;
+  item.meta.coverOverride = input.files[0];
+  item.meta.cover = null;
+  const url = URL.createObjectURL(input.files[0]);
+  document.getElementById('meta-cover-preview').innerHTML = `<img src="${url}"/>`;
+  document.getElementById('meta-cover-status').textContent = 'Обложка заменена вручную';
+  document.getElementById('meta-cover-status').style.color = 'var(--gold)';
+  renderMetaQueue();
+}
+
+function closeMetaPreview(){
+  document.getElementById('meta-overlay').classList.remove('open');
+  document.getElementById('music-files').value = '';
+  _metaQueue = [];
+  _metaIdx = 0;
+}
+
+async function confirmAndUploadCurrent(){
+  saveCurrentEdits();
+  const item = _metaQueue[_metaIdx];
+  if(!item) return;
+  const {meta, file} = item;
+  if(!meta.artist) return toast('Введи артиста', 'error');
+  if(!meta.album) return toast('Введи альбом', 'error');
+  if(!meta.title) return toast('Введи название трека', 'error');
+
+  const btn = document.getElementById('meta-upload-btn');
+  btn.disabled = true;
+  btn.textContent = 'Загрузка...';
+
+  const progress = document.getElementById('meta-progress');
+  const fill = document.getElementById('meta-progress-fill');
+  progress.classList.add('show');
+  fill.style.width = '10%';
+
+  try {
+    const fd = new FormData();
+    fd.append('artist', meta.artist);
+    fd.append('album', meta.album);
+    fd.append('type', meta.type || 'album');
+    if(meta.year) fd.append('year', meta.year);
+    if(meta.artists) fd.append('artists', meta.artists);
+    // Override title in the file metadata via separate field
+    fd.append('track_title', meta.title);
+    fd.append('files', file);
+
+    // If cover override — upload it after
+    fill.style.width = '40%';
+    const r = await fetch('/api/upload/music', {method:'POST', body:fd});
+    fill.style.width = '80%';
+
+    if(r.ok){
+      const d = await r.json();
+      // If cover override, upload it
+      if(meta.coverOverride || (meta.cover && meta.coverMime)){
+        const coverBlob = meta.coverOverride || new Blob([meta.cover], {type: meta.coverMime});
+        const fd2 = new FormData();
+        const albumId = `${meta.artist}/${meta.album}`;
+        fd2.append('album_id', albumId);
+        fd2.append('cover', coverBlob, 'cover.jpg');
+        await fetch('/api/upload/cover', {method:'POST', body:fd2});
+      }
+      fill.style.width = '100%';
+      item.status = 'done';
+      toast(`${meta.title} загружен ✓`);
+
+      // Move to next pending item
+      const nextIdx = _metaQueue.findIndex((it, i) => i > _metaIdx && it.status === 'pending');
+      if(nextIdx !== -1){
+        activateMetaItem(nextIdx);
+      } else {
+        // All done
+        const allDone = _metaQueue.every(i=>i.status==='done');
+        renderMetaQueue();
+        document.getElementById('meta-queue-counter').textContent =
+          `${_metaQueue.filter(i=>i.status==='done').length} / ${_metaQueue.length}`;
+        if(allDone){
+          setTimeout(()=>{
+            closeMetaPreview();
+            loadTracksAdmin();
+            toast('Все треки загружены! 🎉');
+          }, 800);
+        }
+      }
+    } else {
+      item.status = 'error';
+      toast('Ошибка загрузки', 'error');
+      renderMetaQueue();
+    }
+  } catch(e){
+    item.status = 'error';
+    toast('Ошибка сети', 'error');
+    renderMetaQueue();
+  }
+  btn.disabled = false;
+  activateMetaItem(_metaIdx);
 }
 
 // ── Users ─────────────────────────────────────────────────
