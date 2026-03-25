@@ -678,9 +678,9 @@ async function readFileMeta(file){
           pi+=4; // pic type
           const mlen=pd.getUint32(pi); pi+=4;
           const mime=new TextDecoder('ascii').decode(buf.slice(bstart+pi,bstart+pi+mlen)); pi+=mlen;
-          const dlen=pd.getUint32(pi); pi+=4; // description length
-          pi+=dlen;
-          pi+=16; // width, height, depth, indexed color count
+          const dlen=pd.getUint32(pi); pi+=4; // description length field
+          pi+=dlen; // skip description string bytes
+          pi+=16; // width(4), height(4), depth(4), indexed colors(4)
           const imglen=pd.getUint32(pi); pi+=4;
           meta.cover=buf.slice(bstart+pi, bstart+pi+imglen);
           meta.coverMime=mime.includes('png')?'image/png':'image/jpeg';
