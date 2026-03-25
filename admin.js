@@ -641,6 +641,54 @@ async function readFileMeta(file){
         pos = fend;
       }
 
+    } else if(ext==='flac'){
+      // FLAC: "fLaC" + metadata blocks
+      if(!(bytes[0]===0x66&&bytes[1]===0x4c&&bytes[2]===0x61&&bytes[3]===0x43)) return meta;
+      let pos=4;
+      while(pos+4 < buf.byteLength){
+        const bh = bytes[pos];
+        const last = !!(bh & 0x80);
+        const btype = bh & 0x7f;
+        const bsize = (bytes[pos+1]<<16)|(bytes[pos+2]<<8)|bytes[pos+3];
+        const bstart = pos+4;
+        const bend = bstart+bsize;
+        if(btype===4){ // VORBIS_COMMENT
+          const vd = new Uint8Array(buf.slice(bstart, bend));
+          const vdv = new DataView(buf.slice(bstart, bend));
+          let vi=0;
+          const vlen=vdv.getUint32(0,true); vi+=4+vlen; // skip vendor
+          const count=vdv.getUint32(vi,true); vi+=4;
+          for(let ci=0;ci<count;ci++){
+            const clen=vdv.getUint32(vi,true); vi+=4;
+            const comment=new TextDecoder().decode(vd.slice(vi,vi+clen)).trim(); vi+=clen;
+            const eq=comment.indexOf('=');
+            if(eq<0) continue;
+            const k=comment.slice(0,eq).toUpperCase();
+            const v=comment.slice(eq+1).trim();
+            if(k==='TITLE'&&v) meta.title=v;
+            if(k==='ARTIST'&&v) meta.artist=v;
+            if((k==='ALBUMARTIST'||k==='ALBUM ARTIST')&&v&&!meta.artists) meta.artists=v;
+            if(k==='ALBUM'&&v) meta.album=v;
+            if((k==='DATE'||k==='YEAR')&&v) meta.year=v.slice(0,4);
+          }
+        }
+        if(btype===6){ // PICTURE
+          const pd=new DataView(buf.slice(bstart,bend));
+          let pi=0;
+          pi+=4; // pic type
+          const mlen=pd.getUint32(pi); pi+=4;
+          const mime=new TextDecoder('ascii').decode(buf.slice(bstart+pi,bstart+pi+mlen)); pi+=mlen;
+          const dlen=pd.getUint32(pi); pi+=4; // description length
+          pi+=dlen;
+          pi+=16; // width, height, depth, indexed color count
+          const imglen=pd.getUint32(pi); pi+=4;
+          meta.cover=buf.slice(bstart+pi, bstart+pi+imglen);
+          meta.coverMime=mime.includes('png')?'image/png':'image/jpeg';
+        }
+        pos=bend;
+        if(last) break;
+      }
+
     } else if(ext==='m4a'||ext==='mp4'||ext==='aac'){
       // MP4 box walker
       function readBox(off, lim){
