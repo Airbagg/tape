@@ -1,1 +1,4 @@
 # no dependencies
+supabase
+psycopg2-binary
+
