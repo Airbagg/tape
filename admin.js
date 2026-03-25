@@ -522,136 +522,176 @@ async function openMetaPreview(fileList){
   document.getElementById('meta-overlay').classList.add('open');
 }
 
-// Minimal ID3v2 / MP4 metadata reader (browser-side, no libs)
+// ── ID3 / MP4 metadata reader ────────────────────────────
+function stripExt(name){ return name.replace(/\.[^.]+$/, ''); }
+
+function id3SyncsafeInt(b0,b1,b2,b3){
+  return ((b0&0x7f)<<21)|((b1&0x7f)<<14)|((b2&0x7f)<<7)|(b3&0x7f);
+}
+function readNullTerm(bytes, start, end, wide){
+  // wide=true → UTF-16 uses 2-byte null
+  let i = start;
+  if(wide){
+    while(i+1 < end && !(bytes[i]===0 && bytes[i+1]===0)) i+=2;
+    return i;
+  } else {
+    while(i < end && bytes[i]!==0) i++;
+    return i;
+  }
+}
+function decodeID3Str(enc, bytes, start, len){
+  const sl = bytes.slice(start, start+len);
+  try{
+    if(enc===0) return new TextDecoder('iso-8859-1').decode(sl).replace(/\x00/g,'');
+    if(enc===1||enc===2){
+      // UTF-16 with possible BOM
+      let offset = 0;
+      const le = (sl[0]===0xff && sl[1]===0xfe);
+      if(sl[0]===0xff||sl[0]===0xfe) offset=2;
+      return new TextDecoder(le?'utf-16le':'utf-16be').decode(sl.slice(offset)).replace(/\x00/g,'');
+    }
+    return new TextDecoder('utf-8').decode(sl).replace(/\x00/g,'');
+  }catch(e){ return ''; }
+}
+
 async function readFileMeta(file){
   const meta = {
     title: stripExt(file.name),
-    artist: '',
-    album: '',
-    year: '',
-    type: 'album',
-    artists: '',
-    cover: null,      // ArrayBuffer of cover image
-    coverMime: null,
-    coverOverride: null // File object if user replaced
+    artist: '', album: '', year: '',
+    type: 'album', artists: '',
+    cover: null, coverMime: null, coverOverride: null
   };
   try {
     const ext = file.name.split('.').pop().toLowerCase();
     const buf = await file.arrayBuffer();
-    const view = new DataView(buf);
     const bytes = new Uint8Array(buf);
+    const dv = new DataView(buf);
 
     if(ext === 'mp3'){
-      // ID3v2
-      if(bytes[0]===0x49 && bytes[1]===0x44 && bytes[2]===0x33){ // "ID3"
-        const id3ver = bytes[3];
-        let pos = 10;
-        // syncsafe int for tag size
-        const tagSize = ((bytes[6]&0x7f)<<21)|((bytes[7]&0x7f)<<14)|((bytes[8]&0x7f)<<7)|(bytes[9]&0x7f);
-        const end = Math.min(pos + tagSize, buf.byteLength);
-        while(pos + 10 < end){
-          const fid = String.fromCharCode(bytes[pos],bytes[pos+1],bytes[pos+2],bytes[pos+3]);
-          let fsize;
-          if(id3ver >= 4){
-            fsize = ((bytes[pos+4]&0x7f)<<21)|((bytes[pos+5]&0x7f)<<14)|((bytes[pos+6]&0x7f)<<7)|(bytes[pos+7]&0x7f);
-          } else {
-            fsize = view.getUint32(pos+4);
+      // Must start with ID3
+      if(!(bytes[0]===0x49 && bytes[1]===0x44 && bytes[2]===0x33)) return meta;
+      const ver = bytes[3]; // 2, 3 or 4
+      const hasUnsync = !!(bytes[5] & 0x80);
+      const hasExtHdr = !!(bytes[5] & 0x40);
+      const tagSize = id3SyncsafeInt(bytes[6],bytes[7],bytes[8],bytes[9]);
+      let pos = 10;
+      if(hasExtHdr){
+        // skip extended header
+        const ehSize = ver>=4
+          ? id3SyncsafeInt(bytes[10],bytes[11],bytes[12],bytes[13])
+          : dv.getUint32(10);
+        pos += ehSize;
+      }
+      const tagEnd = Math.min(10 + tagSize, buf.byteLength);
+
+      while(pos + 10 < tagEnd){
+        // frame ID
+        const fid = String.fromCharCode(bytes[pos],bytes[pos+1],bytes[pos+2],bytes[pos+3]);
+        if(fid[0] < 'A' || fid[0] > 'Z') break; // padding
+        let fsize = ver>=4
+          ? id3SyncsafeInt(bytes[pos+4],bytes[pos+5],bytes[pos+6],bytes[pos+7])
+          : dv.getUint32(pos+4);
+        // ID3v2.2 uses 3-char IDs and 3-byte sizes — skip for now (rare)
+        if(fsize <= 0 || fsize > 20*1024*1024) break;
+        const fflags = dv.getUint16(pos+8);
+        const fstart = pos + 10;
+        const fend = fstart + fsize;
+
+        // Unsynchronisation per-frame (ID3v2.4 flag bit 1 of second flag byte)
+        let frameData = buf.slice(fstart, fend);
+        const frameUnsync = ver>=4 && !!(fflags & 0x02);
+        if(hasUnsync || frameUnsync){
+          const src = new Uint8Array(frameData);
+          const dst = [];
+          for(let k=0;k<src.length;k++){
+            dst.push(src[k]);
+            if(src[k]===0xFF && k+1<src.length && src[k+1]===0x00) k++; // skip syncsafe byte
           }
-          if(fsize <= 0 || fsize > 10*1024*1024) break;
-          const fstart = pos + 10;
-          const enc = bytes[fstart];
-          const isUtf16 = enc===1||enc===2;
-          const txt = isUtf16
-            ? decodeUTF16(bytes, fstart+1, fsize-1)
-            : decStr(bytes, fstart+1, fsize-1);
-          if(fid==='TIT2') meta.title = txt.trim() || meta.title;
-          if(fid==='TPE1') meta.artist = txt.trim();
-          if(fid==='TALB') meta.album = txt.trim();
-          if(fid==='TDRC'||fid==='TYER') meta.year = txt.trim().slice(0,4);
-          if(fid==='TPE2') meta.artists = txt.trim();
-          if(fid==='APIC'){
-            // APIC: enc(1) + mime(null-term) + pic_type(1) + desc(null-term) + data
-            let i = fstart+1;
-            const enc2 = bytes[fstart];
-            while(i<end && bytes[i]!==0) i++;
-            const mime = decStr(bytes, fstart+1, i-(fstart+1));
-            i++; // skip null
-            i++; // skip pic type
-            while(i<end && bytes[i]!==0) i++; // skip desc
-            i++;
-            meta.cover = buf.slice(i, fstart+fsize);
-            meta.coverMime = mime || 'image/jpeg';
+          frameData = new Uint8Array(dst).buffer;
+        }
+        const fb = new Uint8Array(frameData);
+
+        if('TIT2 TPE1 TALB TDRC TYER TPE2'.includes(fid)){
+          const enc = fb[0];
+          const txt = decodeID3Str(enc, fb, 1, fb.length-1).trim();
+          if(fid==='TIT2' && txt) meta.title = txt;
+          if(fid==='TPE1' && txt) meta.artist = txt;
+          if(fid==='TALB' && txt) meta.album = txt;
+          if((fid==='TDRC'||fid==='TYER') && txt) meta.year = txt.slice(0,4);
+          if(fid==='TPE2' && txt) meta.artists = txt;
+        }
+
+        if(fid==='APIC'){
+          const enc = fb[0];
+          const wide = enc===1||enc===2;
+          // find MIME null terminator (always latin1 regardless of enc)
+          let i = 1;
+          while(i < fb.length && fb[i]!==0) i++;
+          const mime = new TextDecoder('ascii').decode(fb.slice(1,i)) || 'image/jpeg';
+          i++; // skip null
+          i++; // skip picture type byte
+          // skip description (null-terminated, width depends on enc)
+          const descEnd = readNullTerm(fb, i, fb.length, wide);
+          i = descEnd + (wide ? 2 : 1);
+          if(i < fb.length){
+            meta.cover = frameData.slice(i);
+            meta.coverMime = mime.includes('png') ? 'image/png' : 'image/jpeg';
           }
-          pos = fstart + fsize;
+        }
+        pos = fend;
+      }
+
+    } else if(ext==='m4a'||ext==='mp4'||ext==='aac'){
+      // MP4 box walker
+      function readBox(off, lim){
+        while(off + 8 <= lim){
+          let size = dv.getUint32(off);
+          if(size === 1){
+            // 64-bit size
+            size = Number(dv.getBigUint64(off+8));
+          }
+          if(size < 8 || off+size > lim) break;
+          const name = String.fromCharCode(bytes[off+4],bytes[off+5],bytes[off+6],bytes[off+7]);
+          const inner = off+8, innerEnd = off+size;
+          // containers to recurse into
+          if(['moov','udta','ilst','trak','mdia','minf','stbl'].includes(name)) readBox(inner, innerEnd);
+          if(name==='meta') readBox(inner+4, innerEnd);
+          // text tags
+          const tagMap = {'\xa9nam':'title','\xa9ART':'artist','\xa9alb':'album','\xa9day':'year','aART':'artists'};
+          if(tagMap[name]){
+            let di=inner;
+            while(di+8<=innerEnd){
+              const ds=dv.getUint32(di);
+              const dn=String.fromCharCode(bytes[di+4],bytes[di+5],bytes[di+6],bytes[di+7]);
+              if(dn==='data'&&ds>16){
+                const v=new TextDecoder().decode(buf.slice(di+16,di+ds)).replace(/\x00/g,'').trim();
+                if(v) meta[tagMap[name]]=v;
+              }
+              di+=Math.max(ds,8);
+            }
+          }
+          if(name==='covr'){
+            let di=inner;
+            while(di+8<=innerEnd){
+              const ds=dv.getUint32(di);
+              const dn=String.fromCharCode(bytes[di+4],bytes[di+5],bytes[di+6],bytes[di+7]);
+              if(dn==='data'&&ds>16){
+                const flags=dv.getUint32(di+8)&0xff; // 13=JPEG, 14=PNG
+                meta.cover=buf.slice(di+16,di+ds);
+                meta.coverMime=flags===14?'image/png':'image/jpeg';
+              }
+              di+=Math.max(ds,8);
+            }
+          }
+          off+=size;
         }
       }
-    } else if(ext === 'm4a' || ext === 'mp4'){
-      // Minimal MP4/M4A ilst parser
-      const mp4meta = parseMP4Meta(bytes, buf);
-      if(mp4meta.title) meta.title = mp4meta.title;
-      if(mp4meta.artist) meta.artist = mp4meta.artist;
-      if(mp4meta.album) meta.album = mp4meta.album;
-      if(mp4meta.year) meta.year = mp4meta.year;
-      if(mp4meta.cover){ meta.cover = mp4meta.cover; meta.coverMime = 'image/jpeg'; }
+      readBox(0, buf.byteLength);
     }
-  } catch(e){ /* silently fail, use filename */ }
+  } catch(e){ console.warn('meta read error', e); }
   return meta;
 }
 
-function parseMP4Meta(bytes, buf){
-  // Walk boxes to find moov/udta/meta/ilst
-  const result = {};
-  function readBox(offset, limit){
-    while(offset + 8 <= limit){
-      const size = ((bytes[offset]<<24)|(bytes[offset+1]<<16)|(bytes[offset+2]<<8)|bytes[offset+3]) >>> 0;
-      if(size < 8 || offset + size > limit) break;
-      const name = String.fromCharCode(bytes[offset+4],bytes[offset+5],bytes[offset+6],bytes[offset+7]);
-      const inner = offset + 8;
-      const innerEnd = offset + size;
-      if(name==='moov'||name==='udta'||name==='ilst') readBox(inner, innerEnd);
-      if(name==='meta') readBox(inner+4, innerEnd); // meta has 4-byte version/flags
-      const map = {'©nam':'title','©ART':'artist','©alb':'album','©day':'year','aART':'artists'};
-      if(map[name]){
-        // data atom inside
-        let di = inner;
-        while(di+8 <= innerEnd){
-          const ds = ((bytes[di]<<24)|(bytes[di+1]<<16)|(bytes[di+2]<<8)|bytes[di+3]) >>> 0;
-          const dn = String.fromCharCode(bytes[di+4],bytes[di+5],bytes[di+6],bytes[di+7]);
-          if(dn==='data' && ds > 16){
-            result[map[name]] = new TextDecoder().decode(buf.slice(di+16, di+ds));
-          }
-          di += ds || 8;
-        }
-      }
-      if(name==='covr'){
-        let di = inner;
-        while(di+8 <= innerEnd){
-          const ds = ((bytes[di]<<24)|(bytes[di+1]<<16)|(bytes[di+2]<<8)|bytes[di+3]) >>> 0;
-          const dn = String.fromCharCode(bytes[di+4],bytes[di+5],bytes[di+6],bytes[di+7]);
-          if(dn==='data' && ds > 16) result.cover = buf.slice(di+16, di+ds);
-          di += ds || 8;
-        }
-      }
-      offset += size;
-    }
-  }
-  readBox(0, bytes.length);
-  return result;
-}
-
-function decStr(bytes, start, len){
-  try{ return new TextDecoder('utf-8').decode(bytes.slice(start, start+len)).replace(/ /g,''); }
-  catch(e){ return ''; }
-}
-function decodeUTF16(bytes, start, len){
-  try{
-    // skip BOM if present
-    let s = start;
-    if(bytes[s]===0xff&&bytes[s+1]===0xfe || bytes[s]===0xfe&&bytes[s+1]===0xff) s+=2;
-    return new TextDecoder('utf-16le').decode(bytes.slice(s, start+len)).replace(/ /g,'');
-  }catch(e){ return ''; }
-}
-function stripExt(name){ return name.replace(/\.[^.]+$/, ''); }
 
 function coverBlobURL(item){
   if(!item) return null;
