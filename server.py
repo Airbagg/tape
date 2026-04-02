@@ -766,13 +766,17 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self.send_json({'error': 'path required'}, 400)
 
         elif path == '/api/cdnvh':
-            # CDNVideoHub - поиск по kinopoisk_id, бесплатно без токена
+            # CDNVideoHub - поиск по kp_id или imdb_id, бесплатно без токена
             parsed = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(parsed.query)
             kp_id = params.get('kp_id', [''])[0]
-            if not kp_id:
-                return self.send_json({'error': 'kp_id required'}, 400)
-            url = f'https://plapi.cdnvideohub.com/api/v1/player/sv/playlist?pub=12&aggr=kp&id={kp_id}'
+            imdb_id = params.get('imdb_id', [''])[0]
+            if kp_id:
+                url = f'https://plapi.cdnvideohub.com/api/v1/player/sv/playlist?pub=12&aggr=kp&id={kp_id}'
+            elif imdb_id:
+                url = f'https://plapi.cdnvideohub.com/api/v1/player/sv/playlist?pub=12&aggr=imdb&id={imdb_id}'
+            else:
+                return self.send_json({'error': 'kp_id or imdb_id required'}, 400)
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
