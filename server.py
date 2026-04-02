@@ -765,6 +765,40 @@ class H(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_json({'error': 'path required'}, 400)
 
+        elif path == '/api/cdnvh':
+            # CDNVideoHub - поиск по kinopoisk_id, бесплатно без токена
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            kp_id = params.get('kp_id', [''])[0]
+            if not kp_id:
+                return self.send_json({'error': 'kp_id required'}, 400)
+            url = f'https://plapi.cdnvideohub.com/api/v1/player/sv/playlist?pub=12&aggr=kp&id={kp_id}'
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
+        elif path.startswith('/api/cdnvh/video/'):
+            # CDNVideoHub - получить ссылки на видео по vkId
+            vk_id = path[len('/api/cdnvh/video/'):]
+            url = f'https://plapi.cdnvideohub.com/api/v1/player/sv/video/{vk_id}'
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
         elif path.startswith('/uploads/') or path.startswith('/tracks/'):
             if not self.serve_file(path):
                 self.send_response(404); self.end_headers()
