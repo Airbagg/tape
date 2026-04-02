@@ -244,36 +244,15 @@ select.form-input{appearance:none;cursor:pointer}
 .lib-card-label{font-size:8px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px}
 
 .online-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;box-shadow:0 0 6px rgba(76,217,122,.6)}
-
-/* META PREVIEW OVERLAY */
-.meta-preview-cover{width:110px;height:110px;border-radius:12px;background:var(--bg3);border:0.5px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:40px;position:relative}
-.meta-preview-cover img{width:100%;height:100%;object-fit:cover}
-.meta-file-queue{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
-.meta-file-item{background:var(--bg3);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .2s}
-.meta-file-item.active{border-color:rgba(212,168,64,0.5)}
-.meta-file-item.done{border-color:rgba(76,217,122,0.3);opacity:0.6}
-.meta-file-item.error{border-color:rgba(224,84,84,0.3)}
-.meta-file-header{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
-.meta-file-thumb{width:40px;height:40px;border-radius:8px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;overflow:hidden}
-.meta-file-thumb img{width:100%;height:100%;object-fit:cover}
-.meta-file-info{flex:1;min-width:0}
-.meta-file-name{font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.meta-file-sub{font-size:9px;color:var(--muted);margin-top:2px}
-.meta-file-status{font-size:18px;flex-shrink:0}
-.meta-file-body{padding:0 12px 12px;display:none}
-.meta-file-item.active .meta-file-body{display:block}
-.meta-progress{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:8px;display:none}
-.meta-progress-fill{height:100%;background:var(--gold);border-radius:2px;width:0%;transition:width .3s}
-.meta-progress.show{display:block}
 </style>
-<script>fetch("/api/auth/me",{headers:{Authorization:"Bearer "+(localStorage.getItem("tape_token")||"")}}).then(r=>r.json()).then(d=>{if(!d||d.role!=="admin")window.location.href="/login.html";}).catch(()=>window.location.href="/login.html");</script></head>
+</head>
 <body>
 <div class="app">
   <!-- TOPBAR -->
   <div class="topbar">
     <div><div class="logo">tape</div><div class="logo-sub">ADMIN</div></div>
     <div class="topbar-right">
-      <button class="btn secondary" onclick="location.href='/'">← ПРИЛОЖЕНИЕ</button>
+      <button class="btn secondary" onclick="location.href='/launcher.html'">← ПРИЛОЖЕНИЕ</button>
       <button class="btn icon" onclick="logout()">
         <svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
       </button>
@@ -305,13 +284,39 @@ select.form-input{appearance:none;cursor:pointer}
       <!-- Music upload -->
       <div class="music-upload-form">
         <div class="form-label">Загрузить музыку</div>
+        <div class="form-row">
+          <div class="form-group">
+            <input class="form-input" id="upload-artist" placeholder="Артист"/>
+          </div>
+          <div class="form-group">
+            <input class="form-input" id="upload-album" placeholder="Альбом"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Тип</label>
+            <select class="form-input" id="upload-type">
+              <option value="album">Альбом</option>
+              <option value="ep">EP</option>
+              <option value="single">Сингл</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Год</label>
+            <input class="form-input" id="upload-year" placeholder="2024" type="number" min="1900" max="2099"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Артисты (через запятую)</label>
+          <input class="form-input" id="upload-artists" placeholder="Баста, Гуф"/>
+        </div>
         <div class="upload-zone" id="music-drop-zone" onclick="document.getElementById('music-files').click()"
           ondragover="event.preventDefault();this.classList.add('drag')"
           ondragleave="this.classList.remove('drag')"
           ondrop="handleMusicDrop(event)">
-          <input type="file" id="music-files" multiple accept=".mp3,.m4a,.flac,.wav" onchange="openMetaPreview(this.files)"/>
+          <input type="file" id="music-files" multiple accept=".mp3,.m4a,.flac,.wav" onchange="uploadMusic(this.files)"/>
           <div class="upload-zone-icon">🎵</div>
-          <div class="upload-zone-text">Нажми или перетащи MP3 / FLAC / M4A / WAV</div>
+          <div class="upload-zone-text">Нажми или перетащи MP3 файлы</div>
         </div>
       </div>
       <div class="search-bar" style="margin-top:4px">
@@ -614,79 +619,6 @@ select.form-input{appearance:none;cursor:pointer}
     </div>
 
     <button class="btn secondary" style="width:100%" onclick="closeUserDetail()">ЗАКРЫТЬ</button>
-  </div>
-</div>
-
-
-<!-- META PREVIEW OVERLAY -->
-<div class="overlay" id="meta-overlay">
-  <div class="sheet" style="max-height:92vh">
-    <div class="sheet-handle"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div class="sheet-title" style="margin-bottom:0">Проверь метаданные</div>
-      <span id="meta-queue-counter" style="font-size:10px;color:var(--muted)"></span>
-    </div>
-
-    <!-- File queue -->
-    <div class="meta-file-queue" id="meta-file-queue"></div>
-
-    <!-- Detail editor for active file -->
-    <div id="meta-editor" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">
-      <div style="display:flex;gap:12px;margin-bottom:14px">
-        <div class="meta-preview-cover" id="meta-cover-preview">🎵</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Обложка из файла</div>
-          <div id="meta-cover-status" style="font-size:10px;color:var(--muted);margin-bottom:8px">Нет обложки в файле</div>
-          <label class="btn xs secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">
-            <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-            Заменить обложку
-            <input type="file" id="meta-cover-file" accept="image/*" style="display:none" onchange="replaceMetaCover(this)"/>
-          </label>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Название трека</label>
-        <input class="form-input" id="meta-title" placeholder="Название"/>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Артист</label>
-          <input class="form-input" id="meta-artist" placeholder="Артист"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Альбом</label>
-          <input class="form-input" id="meta-album" placeholder="Альбом"/>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Год</label>
-          <input class="form-input" id="meta-year" placeholder="2024" type="number" min="1900" max="2099"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Тип</label>
-          <select class="form-input" id="meta-type">
-            <option value="album">Альбом</option>
-            <option value="ep">EP</option>
-            <option value="single">Сингл</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Артисты (через запятую)</label>
-        <input class="form-input" id="meta-artists" placeholder="Баста, Гуф"/>
-      </div>
-      <div class="meta-progress" id="meta-progress"><div class="meta-progress-fill" id="meta-progress-fill"></div></div>
-    </div>
-
-    <div style="display:flex;gap:8px">
-      <button class="btn secondary" style="flex:1" onclick="closeMetaPreview()">ОТМЕНА</button>
-      <button class="btn" style="flex:1" id="meta-upload-btn" onclick="confirmAndUploadCurrent()">
-        <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
-        ЗАГРУЗИТЬ
-      </button>
-    </div>
   </div>
 </div>
 
