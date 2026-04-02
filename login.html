@@ -191,7 +191,7 @@
       localStorage.setItem('tape_role',  data.role);
 
       if (data.role === 'admin') {
-        window.location.href = '/admin.html';
+        window.location.href = '/launcher.html';
       } else if (data.access) {
         window.location.href = '/launcher.html';
       } else {
@@ -232,7 +232,7 @@
       const res = await fetch('/api/auth/me', {headers:{'Authorization':'Bearer '+token}});
       if (!res.ok) return;
       const user = await res.json();
-      if (user.role === 'admin') { window.location.href = '/admin.html'; return; }
+      if (user.role === 'admin') { window.location.href = '/launcher.html'; return; }
       if (user.access) { window.location.href = '/launcher.html'; return; }
       showPaywall();
     } catch(e) {}

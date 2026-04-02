@@ -158,6 +158,7 @@
       document.getElementById('user-email').textContent = email;
       document.getElementById('avatar-initials').textContent = email.slice(0,2).toUpperCase();
       if (user.sub_active) document.getElementById('sub-dot').style.display = 'block';
+      if (user.role === 'admin') { const a = document.createElement('a'); a.href='/admin.html'; a.textContent='админка'; a.style.cssText='font-size:11px;color:var(--gold);margin-left:8px;text-decoration:none;letter-spacing:0.5px;font-family:Inter,sans-serif;'; document.querySelector('.user-row').appendChild(a); }
     } catch(e) {
       window.location.href = '/login.html';
     }
