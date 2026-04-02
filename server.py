@@ -711,6 +711,60 @@ class H(http.server.SimpleHTTPRequestHandler):
                 self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(data)
             except: self.send_response(500); self.end_headers()
 
+        elif path == '/api/collaps':
+            # Прокси для Collaps API (обходит CORS)
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            token = params.get('token', [''])[0]
+            kinopoisk_id = params.get('kinopoisk_id', [''])[0]
+            imdb_id = params.get('imdb_id', [''])[0]
+            title = params.get('title', [''])[0]
+            year = params.get('year', [''])[0]
+            if kinopoisk_id:
+                url = f'https://api.bhcesh.me/list?token={token}&kinopoisk_id={kinopoisk_id}'
+            elif imdb_id:
+                url = f'https://api.bhcesh.me/list?token={token}&imdb_id={imdb_id}'
+            else:
+                url = f'https://api.bhcesh.me/list?token={token}&title={urllib.parse.quote(title)}&year={year}'
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
+        elif path == '/api/tmdb':
+            # Прокси для TMDB API (обходит CORS)
+            parsed = urllib.parse.urlparse(self.path)
+            qs = parsed.query
+            tmdb_path = urllib.parse.parse_qs(qs).get('path', [''])[0]
+            api_key = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZTg5NzBjNzM0ODE1NTlhMGI3YTg4ZDViMDVlNmJiNiIsInN1YiI6IjY3YTcyYzMzMGQ5ZGE5MTM5MzRmNzEzYSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.placeholder'
+            if tmdb_path:
+                url = f'https://api.themoviedb.org/3{tmdb_path}'
+                if '?' in url:
+                    url += '&language=ru-RU'
+                else:
+                    url += '?language=ru-RU'
+                try:
+                    req = urllib.request.Request(url, headers={
+                        'User-Agent': 'Mozilla/5.0',
+                        'Authorization': f'Bearer {api_key}'
+                    })
+                    with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                        data = r.read()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(data)
+                except Exception as e:
+                    self.send_json({'error': str(e)}, 500)
+            else:
+                self.send_json({'error': 'path required'}, 400)
+
         elif path.startswith('/uploads/') or path.startswith('/tracks/'):
             if not self.serve_file(path):
                 self.send_response(404); self.end_headers()
