@@ -715,6 +715,22 @@ class H(http.server.SimpleHTTPRequestHandler):
             if not self.serve_file(path):
                 self.send_response(404); self.end_headers()
 
+        elif path in ('/cinema', '/cinema/'):
+            self.path = '/cinema-dist/index.html'
+            super().do_GET()
+
+        elif path.startswith('/cinema/'):
+            self.path = path.replace('/cinema/', '/cinema-dist/', 1)
+            super().do_GET()
+
+        elif path in ('/cinema', '/cinema/'):
+            self.path = '/cinema-dist/index.html'
+            super().do_GET()
+
+        elif path.startswith('/cinema/'):
+            self.path = path.replace('/cinema/', '/cinema-dist/', 1)
+            super().do_GET()
+
         else:
             super().do_GET()
 
