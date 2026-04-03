@@ -1199,6 +1199,38 @@ class H(http.server.SimpleHTTPRequestHandler):
                     return
             self.send_json({'error':'failed'}, 400)
 
+        elif path == '/api/torr/add':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length) if length else b''
+            url = 'https://torrserver-production-03c5.up.railway.app/torrents/add'
+            try:
+                req = urllib.request.Request(url, data=body, method='POST',
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data if data else b'{}')
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
+        elif path == '/api/torr/info':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length) if length else b''
+            url = 'https://torrserver-production-03c5.up.railway.app/torrent/info'
+            try:
+                req = urllib.request.Request(url, data=body, method='POST',
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data if data else b'{}')
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
         else:
             self.send_response(404); self.end_headers()
 
