@@ -1222,8 +1222,9 @@ class H(http.server.SimpleHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', 0))
             raw = self.rfile.read(length) if length else b'{}'
             payload = json.loads(raw)
+            payload['action'] = 'get'
             body = json.dumps(payload).encode('utf-8')
-            url = 'https://torrserver-production-03c5.up.railway.app/torrent/info'
+            url = 'https://torrserver-production-03c5.up.railway.app/torrents'
             try:
                 req = urllib.request.Request(url, data=body, method='POST',
                     headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
