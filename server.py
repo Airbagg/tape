@@ -861,7 +861,7 @@ class H(http.server.SimpleHTTPRequestHandler):
             # Добавить торрент в TorrServer
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length) if length else b''
-            url = 'https://torrserver-production-03c5.up.railway.app/torrents/add'
+            url = 'https://torrserver-production-03c5.up.railway.app/torrents'
             try:
                 req = urllib.request.Request(url, data=body, method='POST',
                     headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
@@ -1201,8 +1201,11 @@ class H(http.server.SimpleHTTPRequestHandler):
 
         elif path == '/api/torr/add':
             length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length) if length else b''
-            url = 'https://torrserver-production-03c5.up.railway.app/torrents/add'
+            raw = self.rfile.read(length) if length else b'{}'
+            payload = json.loads(raw)
+            payload['action'] = 'add'
+            body = json.dumps(payload).encode('utf-8')
+            url = 'https://torrserver-production-03c5.up.railway.app/torrents'
             try:
                 req = urllib.request.Request(url, data=body, method='POST',
                     headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
@@ -1217,7 +1220,9 @@ class H(http.server.SimpleHTTPRequestHandler):
 
         elif path == '/api/torr/info':
             length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length) if length else b''
+            raw = self.rfile.read(length) if length else b'{}'
+            payload = json.loads(raw)
+            body = json.dumps(payload).encode('utf-8')
             url = 'https://torrserver-production-03c5.up.railway.app/torrent/info'
             try:
                 req = urllib.request.Request(url, data=body, method='POST',
