@@ -803,6 +803,23 @@ class H(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)
 
+        elif path == '/api/knaben':
+            # Knaben - агрегатор торрентов (rutor, nnmclub и др.), без регистрации
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            q = params.get('q', [''])[0]
+            url = f'https://knaben.eu/api/v1/search?search={urllib.parse.quote(q)}&categories=video&orderBy=seeders&orderDirection=desc&size=20'
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
         elif path == '/api/yts':
             # YTS поиск торрентов по названию фильма
             parsed = urllib.parse.urlparse(self.path)
