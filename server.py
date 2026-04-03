@@ -803,7 +803,68 @@ class H(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)
 
-        elif path.startswith('/uploads/') or path.startswith('/tracks/'):
+        elif path == '/api/yts':
+            # YTS поиск торрентов по названию фильма
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            q = params.get('q', [''])[0]
+            url = f'https://yts.mx/api/v2/list_movies.json?query_terms={urllib.parse.quote(q)}&limit=5&sort_by=seeds'
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
+        elif path == '/api/torr/add':
+            # Добавить торрент в TorrServer
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length) if length else b''
+            url = 'https://torrserver-production-03c5.up.railway.app/torrents/add'
+            try:
+                req = urllib.request.Request(url, data=body, method='POST',
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
+        elif path == '/api/torr/info':
+            # Получить файлы торрента
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length) if length else b''
+            url = 'https://torrserver-production-03c5.up.railway.app/torrent/info'
+            try:
+                req = urllib.request.Request(url, data=body, method='POST',
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_json({'error': str(e)}, 500)
+
+        elif path.startswith('/api/torr/stream/'):
+            # Редирект на TorrServer стрим
+            stream_path = path[len('/api/torr/stream/'):]
+            parsed = urllib.parse.urlparse(self.path)
+            qs = parsed.query
+            url = f'https://torrserver-production-03c5.up.railway.app/stream/{stream_path}?{qs}'
+            self.send_response(302)
+            self.send_header('Location', url)
+            self.end_headers()
+
+                elif path.startswith('/uploads/') or path.startswith('/tracks/'):
             if not self.serve_file(path):
                 self.send_response(404); self.end_headers()
 
