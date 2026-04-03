@@ -803,20 +803,40 @@ class H(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)
 
-        elif path == '/api/knaben':
-            # Knaben - агрегатор торрентов (rutor, nnmclub и др.), без регистрации
+        elif path == '/api/rutor':
+            # Rutor.info - поиск торрентов, русский контент
             parsed = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(parsed.query)
             q = params.get('q', [''])[0]
-            url = f'https://knaben.eu/api/v1/search?search={urllib.parse.quote(q)}&categories=video&orderBy=seeders&orderDirection=desc&size=20'
+            url = f'http://rutor.info/search/0/0/010/0/{urllib.parse.quote(q)}'
             try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
-                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
-                    data = r.read()
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'text/html,application/xhtml+xml',
+                    'Accept-Language': 'ru-RU,ru;q=0.9'
+                })
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    html = r.read().decode('utf-8', errors='ignore')
+                # Парсим таблицу результатов
+                import re
+                results = []
+                rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
+                for row in rows:
+                    # Ищем magnet ссылку
+                    magnet = re.search(r'href="(magnet:[^"]+)"', row)
+                    title = re.search(r'<a[^>]+/torrent/\d+/[^>]+>([^<]+)</a>', row)
+                    seeds = re.search(r'<td[^>]*>(\d+)</td>\s*<td[^>]*>(\d+)</td>\s*</tr>', row)
+                    if magnet and title:
+                        results.append({
+                            'title': title.group(1).strip(),
+                            'magnet': magnet.group(1),
+                            'hash': re.search(r'btih:([a-fA-F0-9]+)', magnet.group(1), re.I).group(1).lower() if re.search(r'btih:([a-fA-F0-9]+)', magnet.group(1), re.I) else '',
+                            'seeders': int(seeds.group(1)) if seeds else 0
+                        })
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                self.wfile.write(data)
+                self.wfile.write(json.dumps({'hits': results}, ensure_ascii=False).encode('utf-8'))
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)
 
