@@ -864,7 +864,7 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.send_header('Location', url)
             self.end_headers()
 
-                elif path.startswith('/uploads/') or path.startswith('/tracks/'):
+        elif path.startswith('/uploads/') or path.startswith('/tracks/'):
             if not self.serve_file(path):
                 self.send_response(404); self.end_headers()
 
